@@ -1,0 +1,2 @@
+# sol-bot
+shagga bot
