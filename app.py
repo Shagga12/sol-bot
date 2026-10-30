@@ -1,11 +1,16 @@
 
-@st.cache_data(ttl=60)
+import streamlit as st
+import ccxt
+import pandas as pd
+import plotly.graph_objects as go
+
+st.title("SOL Bot - 3m TF")
+
 def get_data():
-    # Try multiple exchanges until one works on Streamlit Cloud
-    for exchange_id in ['bybit', 'okx', 'coinbase', 'kucoin']:
+    for ex_id in ['bybit', 'okx', 'coinbase', 'kucoin']:
         try:
-            exchange = getattr(ccxt, exchange_id)()
-            bars = exchange.fetch_ohlcv('SOL/USDT', '3m', limit=100)
+            ex = getattr(ccxt, ex_id)()
+            bars = ex.fetch_ohlcv('SOL/USDT', '3m', limit=100)
             df = pd.DataFrame(bars, columns=['time','open','high','low','close','volume'])
             return df
         except:
@@ -22,7 +27,7 @@ df['EMA9'] = df['close'].ewm(span=9).mean()
 df['EMA21'] = df['close'].ewm(span=21).mean()
 
 last = df.iloc[-1]
-signal = "BUY 🟢" if last['EMA9'] > last['EMA21'] else "SELL 🔴"
+signal = "BUY" if last['EMA9'] > last['EMA21'] else "SELL"
 
 st.metric("SOL Price", f"${last['close']:.2f}", signal)
 
