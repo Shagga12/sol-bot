@@ -8,8 +8,8 @@ st.set_page_config(page_title="SOL Live Trader", layout="wide")
 st.title("SOL Bot - 3m TF - LIVE TRADER")
 
 # --- PUT YOUR BYBIT KEYS HERE - REPLACE INSIDE QUOTES ---
-API_KEY = "YOUR_BYBIT_KEY_HERE"
-API_SECRET = "YOUR_BYBIT_SECRET_HERE"
+API_KEY = "KKBFZoeNuooXkay19S"
+API_SECRET = "wEQBIktBM7WLxfV3TKVbeF1Qn84APFyPQvH4"
 TRADE_AMOUNT_USDT = 10
 
 def get_data():
