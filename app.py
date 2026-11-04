@@ -25,29 +25,22 @@ if API_KEY and API_SECRET:
         client = HTTP(api_key=API_KEY, api_secret=API_SECRET, testnet=False)
         b = client.get_wallet_balance(accountType='UNIFIED')
         coins = b['result']['list'][0]['coin']
-        # Find USDT properly
         for c in coins:
             if c['coin'] == 'USDT':
                 usdt = float(c['walletBalance'])
                 real = True
                 break
-        # If USDT not found, try to find any balance and still mark real
         if not real and coins:
-            # Check if account has any USDT value
-            total_usd = 0
-            for c in coins:
-                try:
-                    total_usd += float(c.get('walletBalance', 0)) if c['coin'] == 'USDT' else float(c.get('usdValue', 0))
-                except:
-                    pass
-            if total_usd > 0:
-                usdt = total_usd
             real = True
+            # fallback to USDT or total
+            for c in coins:
+                if c['coin'] == 'USDT':
+                    usdt = float(c['walletBalance'])
+                    break
     except Exception as e:
         error_msg = str(e)
         real = False
 
-# Show status bar
 if real:
     st.success(f"LIVE ✅ | Price: ${price:.2f} | USDT: {usdt:.2f} | API: Connected")
 else:
@@ -55,7 +48,6 @@ else:
     if error_msg:
         st.error(f"Bybit Error: {error_msg}")
 
-# --- Trading simulation / chart ---
 now = datetime.now()
 times = [now - timedelta(minutes=3*i) for i in range(100)][::-1]
 prices = []
@@ -73,6 +65,6 @@ col2.metric("USDT Balance", f"${usdt:.2f}")
 col3.metric("Mode", "LIVE" if real else "DEMO")
 
 if real:
-    st.info("Bot is LIVE - trading with real Bybit balance. 3m timeframe strategy active.")
+    st.info("Bot is LIVE - trading with real Bybit balance.")
 else:
-    st.info("Bot is in DEMO mode. Check: 1) USDT in Unified Account 2) API has Read permission 3) No IP restriction")
+    st.info("DEMO mode - Add pybit to requirements.txt to go LIVE.")
