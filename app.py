@@ -1,4 +1,4 @@
-import streamlit as st, requests, pandas as pd, random, os
+import streamlit as st, requests, pandas as pd, random, os, hmac, hashlib, time
 from datetime import datetime, timedelta
 
 st.set_page_config(page_title="SOL Bot", layout="wide")
@@ -14,39 +14,47 @@ def get_price():
     except:
         return 93.50
 
-price = get_price()
-usdt = 39.6632
-real = False
-error_msg = ""
-
-if API_KEY and API_SECRET:
+def get_bybit_balance():
+    if not API_KEY or not API_SECRET:
+        return None, "No API keys"
     try:
-        from pybit.unified_trading import HTTP
-        client = HTTP(api_key=API_KEY, api_secret=API_SECRET, testnet=False)
-        b = client.get_wallet_balance(accountType='UNIFIED')
-        coins = b['result']['list'][0]['coin']
+        timestamp = str(int(time.time()*1000))
+        param_str = f"accountType=UNIFIED&timestamp={timestamp}"
+        # For wallet-balance, Bybit V5 needs signature
+        recv_window = "5000"
+        sign_str = timestamp + API_KEY + recv_window + param_str
+        signature = hmac.new(API_SECRET.encode(), sign_str.encode(), hashlib.sha256).hexdigest()
+        headers = {
+            "X-BAPI-API-KEY": API_KEY,
+            "X-BAPI-SIGN": signature,
+            "X-BAPI-TIMESTAMP": timestamp,
+            "X-BAPI-RECV-WINDOW": recv_window
+        }
+        r = requests.get(f"https://api.bybit.com/v5/account/wallet-balance?{param_str}", headers=headers, timeout=10)
+        data = r.json()
+        if data.get("retCode") != 0:
+            return None, f"{data.get('retMsg')} (retCode {data.get('retCode')})"
+        coins = data['result']['list'][0]['coin']
         for c in coins:
             if c['coin'] == 'USDT':
-                usdt = float(c['walletBalance'])
-                real = True
-                break
-        if not real and coins:
-            real = True
-            # fallback to USDT or total
-            for c in coins:
-                if c['coin'] == 'USDT':
-                    usdt = float(c['walletBalance'])
-                    break
+                return float(c['walletBalance']), None
+        return 0, "USDT not found in UNIFIED"
     except Exception as e:
-        error_msg = str(e)
-        real = False
+        return None, str(e)
 
-if real:
+price = get_price()
+balance, err = get_bybit_balance()
+
+if balance is not None:
+    usdt = balance
+    real = True
     st.success(f"LIVE ✅ | Price: ${price:.2f} | USDT: {usdt:.2f} | API: Connected")
 else:
-    st.warning(f"DEMO | Price: ${price:.2f} | USDT: {usdt:.2f} | {error_msg}")
-    if error_msg:
-        st.error(f"Bybit Error: {error_msg}")
+    usdt = 39.66
+    real = False
+    st.warning(f"DEMO | Price: ${price:.2f} | USDT: {usdt:.2f} | {err}")
+    if err:
+        st.error(f"Bybit Error: {err}")
 
 now = datetime.now()
 times = [now - timedelta(minutes=3*i) for i in range(100)][::-1]
@@ -63,8 +71,3 @@ col1, col2, col3 = st.columns(3)
 col1.metric("SOL Price", f"${price:.2f}")
 col2.metric("USDT Balance", f"${usdt:.2f}")
 col3.metric("Mode", "LIVE" if real else "DEMO")
-
-if real:
-    st.info("Bot is LIVE - trading with real Bybit balance.")
-else:
-    st.info("DEMO mode - Add pybit to requirements.txt to go LIVE.")
