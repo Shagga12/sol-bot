@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="SOL Bot", layout="wide")
 st.title("SOL Bot - 3m TF - LIVE TRADER")
 
-API_KEY = os.environ.get("BYBIT_API_KEY", "")
-API_SECRET = os.environ.get("BYBIT_API_SECRET", "")
+API_KEY = os.environ.get("BYBIT_API_KEY", "").strip()
+API_SECRET = os.environ.get("BYBIT_API_SECRET", "").strip()
 
 def get_price():
     try:
@@ -16,13 +16,12 @@ def get_price():
 
 def get_bybit_balance():
     if not API_KEY or not API_SECRET:
-        return None, "No API keys"
+        return None, "No API keys in Environment"
     try:
         timestamp = str(int(time.time()*1000))
-        param_str = f"accountType=UNIFIED&timestamp={timestamp}"
-        # For wallet-balance, Bybit V5 needs signature
         recv_window = "5000"
-        sign_str = timestamp + API_KEY + recv_window + param_str
+        query = "accountType=UNIFIED"
+        sign_str = timestamp + API_KEY + recv_window + query
         signature = hmac.new(API_SECRET.encode(), sign_str.encode(), hashlib.sha256).hexdigest()
         headers = {
             "X-BAPI-API-KEY": API_KEY,
@@ -30,17 +29,19 @@ def get_bybit_balance():
             "X-BAPI-TIMESTAMP": timestamp,
             "X-BAPI-RECV-WINDOW": recv_window
         }
-        r = requests.get(f"https://api.bybit.com/v5/account/wallet-balance?{param_str}", headers=headers, timeout=10)
+        url = f"https://api.bybit.com/v5/account/wallet-balance?{query}"
+        r = requests.get(url, headers=headers, timeout=10)
+        # Try to parse
         data = r.json()
         if data.get("retCode") != 0:
-            return None, f"{data.get('retMsg')} (retCode {data.get('retCode')})"
+            return None, f"Bybit API: {data.get('retMsg')} - {data}"
         coins = data['result']['list'][0]['coin']
         for c in coins:
             if c['coin'] == 'USDT':
                 return float(c['walletBalance']), None
-        return 0, "USDT not found in UNIFIED"
+        return 0, f"USDT not found. Coins: {[x['coin'] for x in coins]}"
     except Exception as e:
-        return None, str(e)
+        return None, f"{str(e)} | Response: {r.text[:200] if 'r' in locals() else 'no response'}"
 
 price = get_price()
 balance, err = get_bybit_balance()
