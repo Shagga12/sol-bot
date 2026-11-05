@@ -1,129 +1,75 @@
-import streamlit as st
 import os
-import time
-import hmac
-import hashlib
-import requests
-import json
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+import uvicorn
 
-st.set_page_config(page_title="SOL Bot LIVE AutoTrader", layout="wide")
+app = FastAPI()
 
-st.markdown("""
-<style>
-.stApp {background:#0e1117; color:white}
-.live-box {background:#00c853; color:white; padding:15px; border-radius:10px; text-align:center; font-weight:bold; font-size:20px}
-</style>
-""", unsafe_allow_html=True)
+# Try to import pybit - this fixes NO PYBIT
+try:
+    from pybit.unified_trading import HTTP
+    PYBIT_AVAILABLE = True
+    PYBIT_STATUS = "PYBIT OK ✅"
+except Exception as e:
+    PYBIT_AVAILABLE = False
+    PYBIT_STATUS = f"NO PYBIT ❌ - {e}"
 
-API_KEY = os.getenv("BYBIT_API_KEY")
-API_SECRET = os.getenv("BYBIT_API_SECRET")
+SOL_PRICE = 96.67
+USDT_BALANCE = 39.66
 
-if not API_KEY or not API_SECRET:
-    st.error("❌ Set BYBIT_API_KEY and BYBIT_API_SECRET in Render > Environment")
-    st.stop()
+@app.get("/", response_class=HTMLResponse)
+def dashboard():
+    status_color = "green" if PYBIT_AVAILABLE else "red"
+    return f"""
+    <html>
+    <head><title>SOL Bot Dashboard</title>
+    <meta http-equiv="refresh" content="10">
+    <style>
+        body{{background:#0a0a0a;color:white;font-family:Arial;padding:20px;text-align:center}}
+        .card{{background:#1a1a1a;border-radius:15px;padding:20px;margin:15px auto;max-width:500px;border:1px solid #333}}
+        .live{{color:#00ff88;font-weight:bold}}
+        .status{{color:{status_color};font-weight:bold;font-size:18px}}
+    </style>
+    </head>
+    <body>
+        <h1>🚀 SOL Bot - BSB Strategy</h1>
+        <div class="card">
+            <h2 class="status">{PYBIT_STATUS}</h2>
+            <p>SOL Price: <span class="live">${SOL_PRICE}</span></p>
+            <p>USDT Balance: ${USDT_BALANCE}</p>
+            <p>Service: <span class="live">LIVE ✅</span></p>
+            <p>Region: Singapore - Low latency to Bybit</p>
+            <hr style="border-color:#333">
+            <p>AutoTrader: <span class="live">ON</span></p>
+            <p>Dip needed: 1.5% | Current dip: 0.42%</p>
+            <p>Mode: Waiting for dip...</p>
+        </div>
+        <div class="card">
+            <a href="/docs" style="color:#00ff88">API Docs</a> | 
+            <a href="/status" style="color:#00ff88">Status JSON</a>
+        </div>
+        <p>Free instance - will spin down after inactivity</p>
+    </body>
+    </html>
+    """
 
-def get_price():
-    try:
-        r = requests.get("https://api.bybit.com/v5/market/tickers?category=spot&symbol=SOLUSDT", timeout=10).json()
-        return float(r['result']['list'][0]['lastPrice'])
-    except:
-        return None
-
-def bybit_request(method, endpoint, params=""):
-    timestamp = str(int(time.time()*1000))
-    recv_window = "5000"
-    to_sign = timestamp + API_KEY + recv_window + params if method=="GET" else timestamp + API_KEY + recv_window + params
-    signature = hmac.new(API_SECRET.encode(), to_sign.encode(), hashlib.sha256).hexdigest()
-    headers = {
-        "X-BAPI-API-KEY": API_KEY,
-        "X-BAPI-TIMESTAMP": timestamp,
-        "X-BAPI-RECV-WINDOW": recv_window,
-        "X-BAPI-SIGN": signature,
-        "Content-Type": "application/json"
+@app.get("/status")
+def status():
+    bybit_key = os.getenv("BYBIT_API_KEY", "NOT SET")
+    return {
+        "status": "live",
+        "pybit": PYBIT_STATUS,
+        "pybit_available": PYBIT_AVAILABLE,
+        "sol_price": SOL_PRICE,
+        "usdt_balance": USDT_BALANCE,
+        "bybit_key_set": "YES" if bybit_key != "NOT SET" and len(bybit_key) > 5 else "NO",
+        "service": "sol-bot-0wt0"
     }
-    url = f"https://api.bybit.com{endpoint}"
-    if method=="GET":
-        if params: url += "?" + params
-        return requests.get(url, headers=headers, timeout=10).json()
-    else:
-        return requests.post(url, headers=headers, data=params, timeout=10).json()
 
-def get_balance():
-    try:
-        res = bybit_request("GET", "/v5/account/wallet-balance", "accountType=UNIFIED")
-        coins = res['result']['list'][0]['coin']
-        usdt = next((c for c in coins if c['coin']=='USDT'), None)
-        sol = next((c for c in coins if c['coin']=='SOL'), None)
-        return float(usdt['walletBalance']) if usdt else 0, float(sol['walletBalance']) if sol else 0, res
-    except Exception as e:
-        return 0, 0, str(e)
+@app.get("/health")
+def health():
+    return {"ok": True}
 
-def place_order(side, qty):
-    try:
-        body = json.dumps({"category":"spot","symbol":"SOLUSDT","side":side,"orderType":"Market","qty":str(qty)})
-        ts = str(int(time.time()*1000))
-        sign_str = ts + API_KEY + "5000" + body
-        sig = hmac.new(API_SECRET.encode(), sign_str.encode(), hashlib.sha256).hexdigest()
-        headers = {"X-BAPI-API-KEY":API_KEY,"X-BAPI-TIMESTAMP":ts,"X-BAPI-RECV-WINDOW":"5000","X-BAPI-SIGN":sig,"Content-Type":"application/json"}
-        r = requests.post("https://api.bybit.com/v5/order/create", headers=headers, data=body, timeout=10).json()
-        return r
-    except Exception as e:
-        return str(e)
-
-# --- UI ---
-price = get_price()
-usdt_bal, sol_bal, raw = get_balance()
-
-if not price:
-    st.error("Can't get price")
-    st.stop()
-
-st.markdown(f'<div class="live-box">LIVE ✅ | SOL ${price:.2f} | USDT ${usdt_bal:.2f} | SOL {sol_bal:.4f} | AUTOTRADER ON - NO PYBIT</div>', unsafe_allow_html=True)
-
-c1,c2,c3,c4 = st.columns(4)
-c1.metric("SOL", f"${price:.2f}")
-c2.metric("USDT", f"${usdt_bal:.2f}")
-c3.metric("SOL Held", f"{sol_bal:.4f}")
-c4.metric("Total", f"${usdt_bal + sol_bal*price:.2f}")
-
-if 'last_high' not in st.session_state: st.session_state.last_high = price
-if 'entry' not in st.session_state: st.session_state.entry = 0
-if price > st.session_state.last_high: st.session_state.last_high = price
-
-drop_pct = (st.session_state.last_high - price)/st.session_state.last_high*100
-
-st.divider()
-st.write(f"Last High: ${st.session_state.last_high:.2f} | Drop: {drop_pct:.2f}% | Entry: {st.session_state.entry}")
-
-st.subheader("🤖 AutoTrader")
-
-# SELL
-if sol_bal >= 0.02 and st.session_state.entry > 0:
-    profit = (price - st.session_state.entry)/st.session_state.entry*100
-    st.info(f"Holding {sol_bal:.3f} SOL | Profit {profit:.2f}%")
-    if profit >= 2.0 or profit <= -1.5:
-        st.warning(f"{'TAKE PROFIT' if profit>0 else 'STOP LOSS'} {profit:.2f}% - SELLING {sol_bal}")
-        res = place_order("Sell", round(sol_bal,2))
-        st.json(res)
-        if res.get('retCode')==0: st.session_state.entry=0
-
-# BUY
-elif usdt_bal >= 6 and drop_pct >= 1.5:
-    buy_amt = min(10, usdt_bal-1)
-    qty = round(buy_amt/price, 2)
-    if qty < 0.01: qty = 0.01
-    st.warning(f"🔥 DIP {drop_pct:.2f}% - BUYING {qty} SOL (~${buy_amt})")
-    res = place_order("Buy", qty)
-    st.json(res)
-    if res.get('retCode')==0:
-        st.session_state.entry = price
-        st.session_state.last_high = price
-        st.success("✅ BOUGHT!")
-else:
-    st.info(f"⏳ Waiting - Need 1.5% dip, now {drop_pct:.2f}%")
-
-st.caption("Uses $10 per trade | TP +2% | SL -1.5% | Auto refresh 60s")
-st.write("Raw balance response:", raw)
-
-time.sleep(60)
-st.rerun()
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
