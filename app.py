@@ -1,35 +1,46 @@
 import streamlit as st
 import os
 import time
+import requests
 from pybit.unified_trading import HTTP
-import pandas as pd
 
-st.set_page_config(page_title="SOL Bot LIVE AutoTrader", layout="wide")
+st.set_page_config(page_title="SOL Bot LIVE AutoTrader", layout="wide", initial_sidebar_state="collapsed")
 
-# --- API ---
-API_KEY = os.getenv("BYBIT_API_KEY")
-API_SECRET = os.getenv("BYBIT_API_SECRET")
-
+# --- STYLE ---
 st.markdown("""
 <style>
 .stApp {background:#0e1117; color:white}
-.live {background:#00c853; color:white; padding:10px; border-radius:8px; text-align:center; font-weight:bold; font-size:18px}
+.live-box {background:linear-gradient(90deg,#00c853,#009624); color:white; padding:15px; border-radius:10px; text-align:center; font-weight:bold; font-size:20px; margin-bottom:20px}
+.metric-card {background:#1e2329; padding:15px; border-radius:10px; text-align:center}
 </style>
 """, unsafe_allow_html=True)
 
+# --- KEYS ---
+API_KEY = os.getenv("BYBIT_API_KEY")
+API_SECRET = os.getenv("BYBIT_API_SECRET")
+
 if not API_KEY or not API_SECRET:
-    st.error("❌ BYBIT_API_KEY / SECRET not set in Render")
+    st.error("❌ BYBIT_API_KEY / SECRET not set in Render > Environment")
     st.stop()
 
-client = HTTP(api_key=API_KEY, api_secret=API_SECRET, testnet=False)
+# Connect Bybit
+@st.cache_resource
+def get_client():
+    return HTTP(api_key=API_KEY, api_secret=API_SECRET, testnet=False)
 
-# --- Functions ---
+client = get_client()
+
 def get_price():
     try:
-        ticker = client.get_tickers(category="spot", symbol="SOLUSDT")
-        return float(ticker['result']['list'][0]['lastPrice'])
+        r = client.get_tickers(category="spot", symbol="SOLUSDT")
+        return float(r['result']['list'][0]['lastPrice'])
     except Exception as e:
-        return None
+        # fallback to public price
+        try:
+            pr = requests.get("https://api.bybit.com/v5/market/tickers?category=spot&symbol=SOLUSDT", timeout=5).json()
+            return float(pr['result']['list'][0]['lastPrice'])
+        except:
+            return None
 
 def get_balance():
     try:
@@ -37,88 +48,102 @@ def get_balance():
         coins = bal['result']['list'][0]['coin']
         usdt = next((c for c in coins if c['coin'] == 'USDT'), None)
         sol = next((c for c in coins if c['coin'] == 'SOL'), None)
-        return float(usdt['walletBalance']) if usdt else 0, float(sol['walletBalance']) if sol else 0
+        ub = float(usdt['walletBalance']) if usdt else 0
+        sb = float(sol['walletBalance']) if sol else 0
+        return ub, sb
     except Exception as e:
+        st.error(f"Balance error: {e}")
         return 0, 0
 
-def place_buy(usdt_amount, price):
+def buy_sol(usdt_amount, price):
     try:
-        qty = round(usdt_amount / price, 3)  # SOL qty
+        qty = round(usdt_amount / price, 2)
         if qty < 0.01: qty = 0.01
-        order = client.place_order(category="spot", symbol="SOLUSDT", side="Buy", orderType="Market", qty=str(qty))
-        return order
+        res = client.place_order(category="spot", symbol="SOLUSDT", side="Buy", orderType="Market", qty=str(qty))
+        return res
     except Exception as e:
-        return str(e)
+        return f"BUY FAILED: {e}"
 
-def place_sell(sol_amount):
+def sell_sol(sol_amount):
     try:
-        qty = round(sol_amount, 3)
-        if qty < 0.01: return "too small"
-        order = client.place_order(category="spot", symbol="SOLUSDT", side="Sell", orderType="Market", qty=str(qty))
-        return order
+        qty = round(sol_amount, 2)
+        if qty < 0.01: return "Too small to sell"
+        res = client.place_order(category="spot", symbol="SOLUSDT", side="Sell", orderType="Market", qty=str(qty))
+        return res
     except Exception as e:
-        return str(e)
+        return f"SELL FAILED: {e}"
 
-# --- UI ---
+# --- LIVE DATA ---
 price = get_price()
 usdt_bal, sol_bal = get_balance()
 
-if price:
-    st.markdown(f'<div class="live">LIVE ✅ | Price: ${price} | USDT: ${usdt_bal:.2f} | SOL: {sol_bal:.4f} | AutoTrader ON</div>', unsafe_allow_html=True)
-else:
-    st.error("Cannot get price - Bybit blocked? Check Singapore region")
+if not price:
+    st.error("❌ Can't get SOL price - Bybit blocked. Make sure Render region is Singapore")
     st.stop()
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("SOL Price", f"${price}")
-col2.metric("USDT Balance", f"${usdt_bal:.2f}")
-col3.metric("SOL Balance", f"{sol_bal:.4f}")
-col4.metric("Mode", "AUTO LIVE")
+# Header
+st.markdown(f'<div class="live-box">LIVE ✅ | SOL ${price} | USDT ${usdt_bal:.2f} | SOL {sol_bal:.4f} | AUTOTRADER ON</div>', unsafe_allow_html=True)
 
-# --- AUTO TRADE LOGIC (3m Dip Buy) ---
-# Strategy: If price drops 1.5% from last high, buy $10. Sell at +2% profit
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("SOL Price", f"${price:.2f}")
+c2.metric("USDT", f"${usdt_bal:.2f}")
+c3.metric("SOL Held", f"{sol_bal:.4f}")
+c4.metric("Total Value", f"${usdt_bal + sol_bal*price:.2f}")
 
+# --- SESSION STATE ---
 if 'last_high' not in st.session_state:
     st.session_state.last_high = price
-if 'entry_price' not in st.session_state:
-    st.session_state.entry_price = 0
+if 'entry' not in st.session_state:
+    st.session_state.entry = 0
 
 if price > st.session_state.last_high:
     st.session_state.last_high = price
 
-drop_pct = (st.session_state.last_high - price) / st.session_state.last_high * 100
+drop_pct = (st.session_state.last_high - price) / st.session_state.last_high * 100 if st.session_state.last_high else 0
 
-st.write(f"Last High: ${st.session_state.last_high:.2f} | Current Drop: {drop_pct:.2f}% | Entry: ${st.session_state.entry_price}")
+st.divider()
+st.write(f"**Last High:** ${st.session_state.last_high:.2f} | **Drop:** {drop_pct:.2f}% | **Entry Price:** ${st.session_state.entry}")
 
-# SELL LOGIC
-if sol_bal > 0.01 and st.session_state.entry_price > 0:
-    profit_pct = (price - st.session_state.entry_price) / st.session_state.entry_price * 100
-    st.write(f"📈 Holding SOL - Profit: {profit_pct:.2f}%")
-    if profit_pct >= 2.0:  # Take profit 2%
-        st.warning(f"SELLING - Profit {profit_pct:.2f}%")
-        res = place_sell(sol_bal)
+# --- AUTO TRADE ---
+st.subheader("🤖 AutoTrader Log")
+
+# SELL
+if sol_bal >= 0.02 and st.session_state.entry > 0:
+    profit = (price - st.session_state.entry) / st.session_state.entry * 100
+    st.info(f"📈 Holding {sol_bal:.3f} SOL | Profit: {profit:.2f}%")
+    if profit >= 2.0:
+        st.success(f"🎯 TAKE PROFIT {profit:.2f}% - SELLING!")
+        res = sell_sol(sol_bal)
         st.write(res)
-        st.session_state.entry_price = 0
-    elif profit_pct <= -1.5:  # Stop loss -1.5%
-        st.error(f"STOP LOSS - {profit_pct:.2f}%")
-        res = place_sell(sol_bal)
+        st.session_state.entry = 0
+        st.balloons()
+    elif profit <= -1.5:
+        st.error(f"🛑 STOP LOSS {profit:.2f}% - SELLING!")
+        res = sell_sol(sol_bal)
         st.write(res)
-        st.session_state.entry_price = 0
+        st.session_state.entry = 0
 
-# BUY LOGIC
-elif usdt_bal > 5 and drop_pct >= 1.5:  # Buy dip 1.5%
-    buy_usdt = min(10, usdt_bal)  # Use $10 per trade, safe
-    st.success(f"BUY SIGNAL - Dip {drop_pct:.2f}% - Buying ${buy_usdt} SOL")
-    res = place_buy(buy_usdt, price)
+# BUY
+elif usdt_bal >= 6 and drop_pct >= 1.5:
+    buy_amt = 10.0
+    if usdt_bal < 10:
+        buy_amt = usdt_bal - 1  # leave $1
+    st.warning(f"🔥 DIP {drop_pct:.2f}% DETECTED - BUYING ${buy_amt} SOL @ ${price}")
+    res = buy_sol(buy_amt, price)
     st.write(res)
-    if isinstance(res, dict):
-        st.session_state.entry_price = price
+    # If buy succeeded, save entry
+    if isinstance(res, dict) and res.get('result'):
+        st.session_state.entry = price
         st.session_state.last_high = price
+        st.success("✅ BOUGHT!")
+    else:
+        st.error(f"Buy error: {res}")
 else:
-    st.info(f"Waiting - Need 1.5% dip to buy. Current dip only {drop_pct:.2f}%")
+    st.info(f"⏳ Waiting for dip... Need 1.5% drop, now {drop_pct:.2f}% | Need $6 USDT to buy")
 
-st.caption("AutoTrader checks every refresh. Render auto-refreshes every 3m. Uses $10 per trade, 2% TP, -1.5% SL. Real money!")
+st.caption("Strategy: 3m Dip Buy $10 | TP +2% | SL -1.5% | Real Money | Refreshes every 60s")
+st.progress(min(drop_pct/1.5, 1.0), text=f"Dip progress to buy signal: {drop_pct:.2f}% / 1.5%")
 
-# Auto refresh every 60 sec
+# Auto refresh
 time.sleep(60)
 st.rerun()
