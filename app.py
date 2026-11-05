@@ -1,149 +1,129 @@
 import streamlit as st
 import os
 import time
+import hmac
+import hashlib
 import requests
-from pybit.unified_trading import HTTP
+import json
 
-st.set_page_config(page_title="SOL Bot LIVE AutoTrader", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="SOL Bot LIVE AutoTrader", layout="wide")
 
-# --- STYLE ---
 st.markdown("""
 <style>
 .stApp {background:#0e1117; color:white}
-.live-box {background:linear-gradient(90deg,#00c853,#009624); color:white; padding:15px; border-radius:10px; text-align:center; font-weight:bold; font-size:20px; margin-bottom:20px}
-.metric-card {background:#1e2329; padding:15px; border-radius:10px; text-align:center}
+.live-box {background:#00c853; color:white; padding:15px; border-radius:10px; text-align:center; font-weight:bold; font-size:20px}
 </style>
 """, unsafe_allow_html=True)
 
-# --- KEYS ---
 API_KEY = os.getenv("BYBIT_API_KEY")
 API_SECRET = os.getenv("BYBIT_API_SECRET")
 
 if not API_KEY or not API_SECRET:
-    st.error("❌ BYBIT_API_KEY / SECRET not set in Render > Environment")
+    st.error("❌ Set BYBIT_API_KEY and BYBIT_API_SECRET in Render > Environment")
     st.stop()
-
-# Connect Bybit
-@st.cache_resource
-def get_client():
-    return HTTP(api_key=API_KEY, api_secret=API_SECRET, testnet=False)
-
-client = get_client()
 
 def get_price():
     try:
-        r = client.get_tickers(category="spot", symbol="SOLUSDT")
+        r = requests.get("https://api.bybit.com/v5/market/tickers?category=spot&symbol=SOLUSDT", timeout=10).json()
         return float(r['result']['list'][0]['lastPrice'])
-    except Exception as e:
-        # fallback to public price
-        try:
-            pr = requests.get("https://api.bybit.com/v5/market/tickers?category=spot&symbol=SOLUSDT", timeout=5).json()
-            return float(pr['result']['list'][0]['lastPrice'])
-        except:
-            return None
+    except:
+        return None
+
+def bybit_request(method, endpoint, params=""):
+    timestamp = str(int(time.time()*1000))
+    recv_window = "5000"
+    to_sign = timestamp + API_KEY + recv_window + params if method=="GET" else timestamp + API_KEY + recv_window + params
+    signature = hmac.new(API_SECRET.encode(), to_sign.encode(), hashlib.sha256).hexdigest()
+    headers = {
+        "X-BAPI-API-KEY": API_KEY,
+        "X-BAPI-TIMESTAMP": timestamp,
+        "X-BAPI-RECV-WINDOW": recv_window,
+        "X-BAPI-SIGN": signature,
+        "Content-Type": "application/json"
+    }
+    url = f"https://api.bybit.com{endpoint}"
+    if method=="GET":
+        if params: url += "?" + params
+        return requests.get(url, headers=headers, timeout=10).json()
+    else:
+        return requests.post(url, headers=headers, data=params, timeout=10).json()
 
 def get_balance():
     try:
-        bal = client.get_wallet_balance(accountType="UNIFIED")
-        coins = bal['result']['list'][0]['coin']
-        usdt = next((c for c in coins if c['coin'] == 'USDT'), None)
-        sol = next((c for c in coins if c['coin'] == 'SOL'), None)
-        ub = float(usdt['walletBalance']) if usdt else 0
-        sb = float(sol['walletBalance']) if sol else 0
-        return ub, sb
+        res = bybit_request("GET", "/v5/account/wallet-balance", "accountType=UNIFIED")
+        coins = res['result']['list'][0]['coin']
+        usdt = next((c for c in coins if c['coin']=='USDT'), None)
+        sol = next((c for c in coins if c['coin']=='SOL'), None)
+        return float(usdt['walletBalance']) if usdt else 0, float(sol['walletBalance']) if sol else 0, res
     except Exception as e:
-        st.error(f"Balance error: {e}")
-        return 0, 0
+        return 0, 0, str(e)
 
-def buy_sol(usdt_amount, price):
+def place_order(side, qty):
     try:
-        qty = round(usdt_amount / price, 2)
-        if qty < 0.01: qty = 0.01
-        res = client.place_order(category="spot", symbol="SOLUSDT", side="Buy", orderType="Market", qty=str(qty))
-        return res
+        body = json.dumps({"category":"spot","symbol":"SOLUSDT","side":side,"orderType":"Market","qty":str(qty)})
+        ts = str(int(time.time()*1000))
+        sign_str = ts + API_KEY + "5000" + body
+        sig = hmac.new(API_SECRET.encode(), sign_str.encode(), hashlib.sha256).hexdigest()
+        headers = {"X-BAPI-API-KEY":API_KEY,"X-BAPI-TIMESTAMP":ts,"X-BAPI-RECV-WINDOW":"5000","X-BAPI-SIGN":sig,"Content-Type":"application/json"}
+        r = requests.post("https://api.bybit.com/v5/order/create", headers=headers, data=body, timeout=10).json()
+        return r
     except Exception as e:
-        return f"BUY FAILED: {e}"
+        return str(e)
 
-def sell_sol(sol_amount):
-    try:
-        qty = round(sol_amount, 2)
-        if qty < 0.01: return "Too small to sell"
-        res = client.place_order(category="spot", symbol="SOLUSDT", side="Sell", orderType="Market", qty=str(qty))
-        return res
-    except Exception as e:
-        return f"SELL FAILED: {e}"
-
-# --- LIVE DATA ---
+# --- UI ---
 price = get_price()
-usdt_bal, sol_bal = get_balance()
+usdt_bal, sol_bal, raw = get_balance()
 
 if not price:
-    st.error("❌ Can't get SOL price - Bybit blocked. Make sure Render region is Singapore")
+    st.error("Can't get price")
     st.stop()
 
-# Header
-st.markdown(f'<div class="live-box">LIVE ✅ | SOL ${price} | USDT ${usdt_bal:.2f} | SOL {sol_bal:.4f} | AUTOTRADER ON</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="live-box">LIVE ✅ | SOL ${price:.2f} | USDT ${usdt_bal:.2f} | SOL {sol_bal:.4f} | AUTOTRADER ON - NO PYBIT</div>', unsafe_allow_html=True)
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("SOL Price", f"${price:.2f}")
+c1,c2,c3,c4 = st.columns(4)
+c1.metric("SOL", f"${price:.2f}")
 c2.metric("USDT", f"${usdt_bal:.2f}")
 c3.metric("SOL Held", f"{sol_bal:.4f}")
-c4.metric("Total Value", f"${usdt_bal + sol_bal*price:.2f}")
+c4.metric("Total", f"${usdt_bal + sol_bal*price:.2f}")
 
-# --- SESSION STATE ---
-if 'last_high' not in st.session_state:
-    st.session_state.last_high = price
-if 'entry' not in st.session_state:
-    st.session_state.entry = 0
+if 'last_high' not in st.session_state: st.session_state.last_high = price
+if 'entry' not in st.session_state: st.session_state.entry = 0
+if price > st.session_state.last_high: st.session_state.last_high = price
 
-if price > st.session_state.last_high:
-    st.session_state.last_high = price
-
-drop_pct = (st.session_state.last_high - price) / st.session_state.last_high * 100 if st.session_state.last_high else 0
+drop_pct = (st.session_state.last_high - price)/st.session_state.last_high*100
 
 st.divider()
-st.write(f"**Last High:** ${st.session_state.last_high:.2f} | **Drop:** {drop_pct:.2f}% | **Entry Price:** ${st.session_state.entry}")
+st.write(f"Last High: ${st.session_state.last_high:.2f} | Drop: {drop_pct:.2f}% | Entry: {st.session_state.entry}")
 
-# --- AUTO TRADE ---
-st.subheader("🤖 AutoTrader Log")
+st.subheader("🤖 AutoTrader")
 
 # SELL
 if sol_bal >= 0.02 and st.session_state.entry > 0:
-    profit = (price - st.session_state.entry) / st.session_state.entry * 100
-    st.info(f"📈 Holding {sol_bal:.3f} SOL | Profit: {profit:.2f}%")
-    if profit >= 2.0:
-        st.success(f"🎯 TAKE PROFIT {profit:.2f}% - SELLING!")
-        res = sell_sol(sol_bal)
-        st.write(res)
-        st.session_state.entry = 0
-        st.balloons()
-    elif profit <= -1.5:
-        st.error(f"🛑 STOP LOSS {profit:.2f}% - SELLING!")
-        res = sell_sol(sol_bal)
-        st.write(res)
-        st.session_state.entry = 0
+    profit = (price - st.session_state.entry)/st.session_state.entry*100
+    st.info(f"Holding {sol_bal:.3f} SOL | Profit {profit:.2f}%")
+    if profit >= 2.0 or profit <= -1.5:
+        st.warning(f"{'TAKE PROFIT' if profit>0 else 'STOP LOSS'} {profit:.2f}% - SELLING {sol_bal}")
+        res = place_order("Sell", round(sol_bal,2))
+        st.json(res)
+        if res.get('retCode')==0: st.session_state.entry=0
 
 # BUY
 elif usdt_bal >= 6 and drop_pct >= 1.5:
-    buy_amt = 10.0
-    if usdt_bal < 10:
-        buy_amt = usdt_bal - 1  # leave $1
-    st.warning(f"🔥 DIP {drop_pct:.2f}% DETECTED - BUYING ${buy_amt} SOL @ ${price}")
-    res = buy_sol(buy_amt, price)
-    st.write(res)
-    # If buy succeeded, save entry
-    if isinstance(res, dict) and res.get('result'):
+    buy_amt = min(10, usdt_bal-1)
+    qty = round(buy_amt/price, 2)
+    if qty < 0.01: qty = 0.01
+    st.warning(f"🔥 DIP {drop_pct:.2f}% - BUYING {qty} SOL (~${buy_amt})")
+    res = place_order("Buy", qty)
+    st.json(res)
+    if res.get('retCode')==0:
         st.session_state.entry = price
         st.session_state.last_high = price
         st.success("✅ BOUGHT!")
-    else:
-        st.error(f"Buy error: {res}")
 else:
-    st.info(f"⏳ Waiting for dip... Need 1.5% drop, now {drop_pct:.2f}% | Need $6 USDT to buy")
+    st.info(f"⏳ Waiting - Need 1.5% dip, now {drop_pct:.2f}%")
 
-st.caption("Strategy: 3m Dip Buy $10 | TP +2% | SL -1.5% | Real Money | Refreshes every 60s")
-st.progress(min(drop_pct/1.5, 1.0), text=f"Dip progress to buy signal: {drop_pct:.2f}% / 1.5%")
+st.caption("Uses $10 per trade | TP +2% | SL -1.5% | Auto refresh 60s")
+st.write("Raw balance response:", raw)
 
-# Auto refresh
 time.sleep(60)
 st.rerun()
