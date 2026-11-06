@@ -4,7 +4,7 @@ import streamlit as st
 API_KEY = os.getenv("BYBIT_API_KEY")
 API_SECRET = os.getenv("BYBIT_API_SECRET")
 SYMBOL = "SOLUSDT"
-TRADE_USDT = 16.5  # FIXED for Bybit limit
+TRADE_USDT = 16.5
 DIP_PCT = 0.10
 TP_PCT = 0.40
 SL_PCT = 0.60
@@ -18,7 +18,7 @@ st.markdown("""
 .metric-label {color: #888; font-size: 12px; letter-spacing: 2px;}
 .live-dot {height: 12px; width: 12px; background: #00ff88; border-radius: 50%; display: inline-block; animation: pulse 2s infinite;}
 @keyframes pulse {0% {box-shadow: 0 0 0 0 rgba(0,255,136,0.7);} 70% {box-shadow: 0 0 0 10px rgba(0,255,136,0);} 100% {box-shadow: 0 0 0 0 rgba(0,255,136,0);}}
-.buy-signal {background: linear-gradient(90deg, #00ff88, #00cc66); color: black; font-weight: 900; padding: 15px; border-radius: 12px; text-align: center; font-size: 20px; animation: flash 1s infinite;}
+.buy-signal {background: linear-gradient(90deg, #00ff88, #00cc66); color: black; font-weight: 900; padding: 15px; border-radius: 12px; text-align: center; font-size: 20px;}
 .sell-signal {background: linear-gradient(90deg, #ff0040, #ff4d6d); color: white; font-weight: 900; padding: 15px; border-radius: 12px; text-align: center; font-size: 20px;}
 </style>
 """, unsafe_allow_html=True)
@@ -56,8 +56,25 @@ def get_price():
         return price
     except: return 179.85
 
-def place_order(side, qty):
-    params = {"category": "spot", "symbol": SYMBOL, "side": side, "orderType": "Market", "qty": str(qty)}
+def place_order(side, qty_or_usdt):
+    # FIX FOR UNIFIED ACCOUNT: For BUY, send USDT amount using marketUnit
+    if side == "Buy":
+        params = {
+            "category": "spot",
+            "symbol": SYMBOL,
+            "side": side,
+            "orderType": "Market",
+            "qty": str(qty_or_usdt),
+            "marketUnit": "quoteCoin"
+        }
+    else:
+        params = {
+            "category": "spot",
+            "symbol": SYMBOL,
+            "side": side,
+            "orderType": "Market",
+            "qty": str(qty_or_usdt)
+        }
     return bybit_request("POST", "/v5/order/create", params)
 
 if 'last_high' not in st.session_state:
@@ -69,7 +86,7 @@ if 'last_high' not in st.session_state:
     st.session_state.profit = 0.0
 
 price = get_price()
-if st.session_state.last_high == 0: st.session_state.last_high = price * 1.002
+if st.session_state.last_high == 0: st.session_state.last_high = 180.21
 if price > st.session_state.last_high: st.session_state.last_high = price
 drop = ((price - st.session_state.last_high) / st.session_state.last_high * 100) if st.session_state.last_high else 0
 pnl = ((price - st.session_state.entry) / st.session_state.entry * 100) if st.session_state.holding and st.session_state.entry else 0
@@ -91,23 +108,26 @@ with col_log: log_box = st.empty()
 
 should_buy = drop <= -DIP_PCT
 if not st.session_state.holding and should_buy:
-    qty = 0.09  # FIXED: $16.18 passes Bybit min
-    log_box.markdown(f'<div class="buy-signal">🚀 BUY SIGNAL {drop:.3f}% - BUYING {qty} SOL @ ${price}</div>', unsafe_allow_html=True)
+    log_box.markdown(f'<div class="buy-signal">🚀 BUY SIGNAL {drop:.3f}% - BUYING ${TRADE_USDT} of SOL @ ${price}</div>', unsafe_allow_html=True)
     if API_KEY:
-        res = place_order("Buy", qty)
+        res = place_order("Buy", TRADE_USDT)
+        log_box.json(res)
         if res and res.get('retCode')==0:
-            st.session_state.entry = price; st.session_state.holding = True; st.session_state.holding_qty = qty; st.session_state.trades +=1
-            log_box.success(f"BOUGHT {qty} SOL! Check Bybit Spot!")
+            st.session_state.entry = price
+            st.session_state.holding = True
+            # Estimate qty from USDT spent
+            st.session_state.holding_qty = round(TRADE_USDT / price, 4)
+            st.session_state.trades +=1
+            st.success(f"BOUGHT ${TRADE_USDT} SOL!")
         else:
-            log_box.error(f"Still Funding wallet! Move to Spot. {res}")
+            st.error(f"Check: 1) USDT collateral ON? 2) Unified has $20? Error: {res}")
 
 elif st.session_state.holding:
     if pnl >= TP_PCT or pnl <= -SL_PCT:
         log_box.markdown(f'<div class="sell-signal">💰 SELL PNL {pnl:.3f}% @ ${price}</div>', unsafe_allow_html=True)
         if API_KEY:
             res = place_order("Sell", st.session_state.holding_qty)
-            profit_usd = (price - st.session_state.entry) * st.session_state.holding_qty
-            st.session_state.profit += profit_usd
+            log_box.json(res)
         st.session_state.holding = False; st.session_state.entry = 0; st.session_state.holding_qty = 0; st.session_state.last_high = price
     else:
         log_box.markdown(f'<div class="card">⏳ Holding {st.session_state.holding_qty} SOL | Waiting +{TP_PCT}% TP | PNL <b style="color:{pnl_color}">{pnl:.3f}%</b></div>', unsafe_allow_html=True)
