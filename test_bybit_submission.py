@@ -21,7 +21,8 @@ def plan(client_id='cc-1', qty='1', price='9.99'):
 def receipt(qty='1', status='Filled'):
     return {'final':True, 'consistent':True, 'client_id':'cc-1', 'order_id':'exchange-1',
             'symbol':'SOLUSDT', 'side':'Buy', 'filled_qty':qty,
-            'filled_value_usdt':'9.99' if qty == '1' else '0', 'outcome':status}
+            'filled_value_usdt':'9.99' if qty == '1' else '0', 'outcome':status,
+            'execution_ids':['fill-1'] if qty == '1' else [], 'fees_by_currency':{}}
 
 
 class SubmissionTest(unittest.TestCase):
@@ -121,7 +122,7 @@ class SubmissionTest(unittest.TestCase):
         finally: other.close()
 
     def test_margin_or_extra_fields_rejected(self):
-        for update in [{'isLeverage':1}, {'category':'linear'}, {'triggerPrice':'1'}, {'side':'Sell'}]:
+        for update in [{'isLeverage':1}, {'category':'linear'}, {'triggerPrice':'1'}, {'side':'Invalid'}]:
             p = plan()
             p['payload'].update(update)
             with self.assertRaises(SubmissionError): self.submit(p)
