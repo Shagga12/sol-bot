@@ -12,7 +12,7 @@ This branch is an undeployed repair draft. It does not enable live trading.
 
 ## Validation
 
-Run `python -m unittest discover -v`: 111 tests pass, including restart recovery, duplicate fills, rejected sells, partial/cancelled fills, rollback, competing connections, and the 20 USDT initial budget. Run `python paper_engine.py` for a temporary simulated buy/sell scenario; its prices and profit are fixtures, not market results.
+Run `python -m unittest discover -v`: 117 tests pass, including restart recovery, duplicate fills, rejected sells, partial/cancelled fills, rollback, competing connections, and the 20 USDT initial budget. Run `python paper_engine.py` for a temporary simulated buy/sell scenario; its prices and profit are fixtures, not market results.
 
 ## Order checks and read-only execution receipts
 
@@ -71,3 +71,11 @@ STRATEGY_REVIEW.md and strategy_proposal.json contain an unapproved, unbackteste
 strategy_backtest.py is a standalone standard-library public-data downloader and historical simulation tool. It uses documented Bybit BTCUSDT 15-minute spot candles, excludes forming bars, checks complete coverage, fills signals at the next bar open, deducts fees and adverse execution costs, preserves dust and open positions, and reports data hashes and limitations. It uses current exchange size filters as a proxy, not historical filter versions, and cannot reconstruct historical spreads, orderbook liquidity or intrabar protective fills.
 
 The actual 90-day historical test attempt from this workspace FAILED because the public API returned an HTML Site Unavailable page instead of market data. historical_test_result.json records the failure and live_trading_ready=false. No historical return, win rate or profitability result is claimed. A local run from the owner's computer is required to obtain data if that computer remains eligible and can reach Bybit. No keys or orders are involved. Eleven additional fixture tests cover next-bar fills, fee deductions, missing data, minimum-notional failures, no private endpoints and Tortola day boundaries; the full suite passes 111 tests.
+
+## Owner-run historical test and dust diagnosis
+
+The owner successfully retrieved public candles locally and ran the original 90-day historical simulation: one buy, one sell, approximately -0.01968488 USDT realized P&L and -0.2236918% total marked return. The report recorded 8,640 candles, a 0.000001 BTC quantity step, a 5 USDT minimum notional proxy and 0.000000913 BTC remaining after the sale. The latter is below the quantity step. The simulator kept treating the residual as an active position, preventing later entries and repeatedly counting exit checks (8,233 minimum-order skips). Those checks were not independent missed profitable trades. This report is insufficient to judge strategy profitability or live readiness.
+
+The revised replay now uses explicit dust policies. The default halt policy records one unsellable-dust event and stops new entries while continuing marked-equity reporting. A separate simulation-only quarantine policy preserves dust units and cost outside the active position, allowing another entry with cash only; it does not write off dust, count it as cash or change live behavior. Blocked exit periods are reported separately from distinct minimum-order block events.
+
+The CLI supports --dust-policy compare, --save-data and --data-file. Public candles and filter proxies can now be saved with a dataset checksum and replayed offline on the exact same input. Six dust/data-bundle regression tests bring the full passing suite to 117. A corrected real historical comparison still requires the candle dataset or a fresh owner-local run; the original uploaded results contain no candles. No profitable outcome, activation or deployment is claimed.
