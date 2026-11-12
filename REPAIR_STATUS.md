@@ -12,7 +12,7 @@ This branch is an undeployed repair draft. It does not enable live trading.
 
 ## Validation
 
-Run `python -m unittest discover -v`: 100 tests pass, including restart recovery, duplicate fills, rejected sells, partial/cancelled fills, rollback, competing connections, and the 20 USDT initial budget. Run `python paper_engine.py` for a temporary simulated buy/sell scenario; its prices and profit are fixtures, not market results.
+Run `python -m unittest discover -v`: 111 tests pass, including restart recovery, duplicate fills, rejected sells, partial/cancelled fills, rollback, competing connections, and the 20 USDT initial budget. Run `python paper_engine.py` for a temporary simulated buy/sell scenario; its prices and profit are fixtures, not market results.
 
 ## Order checks and read-only execution receipts
 
@@ -65,3 +65,9 @@ Remaining operational blockers: no owner-approved automatic strategy is integrat
 STRATEGY_REVIEW.md and strategy_proposal.json contain an unapproved, unbacktested BTCUSDT-only simulation proposal: closed 15-minute 20/50 SMA crossover entry, estimated net +2% / -1% exits, bearish-crossover exit, one position, at most two entries daily, and a daily new-entry pause after 2% realized losses. strategy_signals.py implements a pure evaluator with stale-data, unresolved-order, pause and duplicate-candle guards. It has no network or execution imports and always reports permits_live_order=false. Live allocation is unset and live activation is false. Thresholds are test examples rather than profitability claims or guaranteed risk caps.
 
 100 tests now pass. The proposal does not implement a persistent scheduler, actual market backtesting, live order activation or independently verified continuous/protective exit handling. Full operational blockers still apply. The owner has authorized preparation and review, not autonomous discretionary live trading.
+
+## Historical test attempt
+
+strategy_backtest.py is a standalone standard-library public-data downloader and historical simulation tool. It uses documented Bybit BTCUSDT 15-minute spot candles, excludes forming bars, checks complete coverage, fills signals at the next bar open, deducts fees and adverse execution costs, preserves dust and open positions, and reports data hashes and limitations. It uses current exchange size filters as a proxy, not historical filter versions, and cannot reconstruct historical spreads, orderbook liquidity or intrabar protective fills.
+
+The actual 90-day historical test attempt from this workspace FAILED because the public API returned an HTML Site Unavailable page instead of market data. historical_test_result.json records the failure and live_trading_ready=false. No historical return, win rate or profitability result is claimed. A local run from the owner's computer is required to obtain data if that computer remains eligible and can reach Bybit. No keys or orders are involved. Eleven additional fixture tests cover next-bar fills, fee deductions, missing data, minimum-notional failures, no private endpoints and Tortola day boundaries; the full suite passes 111 tests.
