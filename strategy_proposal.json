@@ -1,0 +1,23 @@
+{
+  "status": "DRAFT_FOR_OWNER_REVIEW",
+  "mode": "SIMULATION_ONLY",
+  "live_activation": false,
+  "live_budget_usdt": null,
+  "symbol": "BTCUSDT",
+  "interval_minutes": 15,
+  "fast_sma": 20,
+  "slow_sma": 50,
+  "take_profit_net_fraction": "0.02",
+  "stop_loss_net_fraction": "0.01",
+  "daily_realized_loss_fraction": "0.02",
+  "max_entries_per_day": 2,
+  "max_positions": 1,
+  "simulation_allocation_usdt": "5.50",
+  "simulation_exit_fee_rate": "0.001",
+  "quote_max_age_seconds": 5,
+  "max_entry_spread_fraction": "0.002",
+  "leverage": false,
+  "averaging_down": false,
+  "withdrawals": false,
+  "commission_collection": false
+}
