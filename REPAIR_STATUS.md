@@ -12,7 +12,7 @@ This branch is an undeployed repair draft. It does not enable live trading.
 
 ## Validation
 
-Run `python -m unittest discover -v`: 73 tests pass, including restart recovery, duplicate fills, rejected sells, partial/cancelled fills, rollback, competing connections, and the 20 USDT initial budget. Run `python paper_engine.py` for a temporary simulated buy/sell scenario; its prices and profit are fixtures, not market results.
+Run `python -m unittest discover -v`: 86 tests pass, including restart recovery, duplicate fills, rejected sells, partial/cancelled fills, rollback, competing connections, and the 20 USDT initial budget. Run `python paper_engine.py` for a temporary simulated buy/sell scenario; its prices and profit are fixtures, not market results.
 
 ## Order checks and read-only execution receipts
 
@@ -30,17 +30,17 @@ Documentation used:
 
 ## Submission component (unwired and disabled)
 
-bybit_submission.py now contains a signed Bybit spot limit-IOC BUY transport and a durable submission coordinator. The transport is disabled by default. The coordinator also requires explicit activation; neither is called by app.py or any deployed worker. Tests use fake credentials and injected fake transports only.
+bybit_submission.py now contains a signed Bybit spot limit-IOC BUY/SELL transport and a durable submission coordinator. The transport is disabled by default. The coordinator also requires explicit activation; neither is called by app.py or any deployed worker. Tests use fake credentials and injected fake transports only.
 
 The coordinator persists UNKNOWN before invoking the writer, never resends a previously claimed client ID, blocks a second unresolved intent, and distinguishes ACKNOWLEDGED from a verified final execution receipt. It keeps filled/partial capital reserved, releases only proven zero-fill intents, and checks the aggregate reserved ceiling of 20 USDT. This is a ceiling, not a claim that the owner still has 20 USDT available. The integration fixture uses 5.5241 USDT available and a 5.50 USDT plan, not actual funds.
 
-The writer signs the exact JSON bytes sent, uses only the documented mainnet endpoint, disables redirects, never retries writes, and sanitizes uncertain outcomes. It does not implement sell orders, a portfolio ledger, credential/region eligibility checks, refreshed runtime inputs, or a strategy. No existing UI or worker can activate it. Do not wire it into a live application until those missing pieces are integrated and verified. Its separate SQLite journal must be hosted durably before production use.
+The writer signs the exact JSON bytes sent, uses only the documented mainnet endpoint, disables redirects, never retries writes, and sanitizes uncertain outcomes. It now supports sells against bot-owned positions and receipt-based position/cost accounting. Credential/region eligibility checks, refreshed runtime inputs, and a strategy remain unfinished. No existing UI or worker can activate it. Do not wire it into a live application until those missing pieces are integrated and verified. Its separate SQLite journal must be hosted durably before production use.
 
 An end-to-end fixture test covers planning, acknowledgement, partial-fill cancellation, base-currency fees, receipt verification, and restart without resubmission. There was no authenticated live exchange test and no production deployment.
 
 ## Remaining before live operation
 
-The paper ledger has no exchange order adapter, automation strategy, or live execution switch. Do not feed raw Bybit messages into its simulation snapshot API. A live adapter still must integrate validated plans and receipts with submission state, account eligibility, actual fee-adjusted positions, externally changed balances, and stable client order IDs. The new receipt reader does not perform that submission integration. Durable hosting needs a persistent database, a single execution worker, private authentication, and operational pause/recovery controls. No SQLite file on ephemeral Render storage should be treated as durable production state.
+The paper ledger has no exchange order adapter, automation strategy, or live execution switch. Do not feed raw Bybit messages into its simulation snapshot API. The submission journal now integrates verified receipts with fee-adjusted positions and stable client IDs. A production runtime still must refresh account eligibility and spendable balances, detect external account changes, and apply an owner-approved trading strategy. Durable hosting needs a persistent database, a single execution worker, private authentication, and operational pause/recovery controls. No SQLite file on ephemeral Render storage should be treated as durable production state.
 
 The owner confirmed moving 20 USDT into Unified Trading. Authentication succeeded locally with a read-only key; authenticated Render connectivity remains unverified. This branch has not changed either existing Render deployment or the private Capital Connect site. Main remains unchanged.
 
@@ -49,3 +49,13 @@ Do not enable trading permissions or restart the legacy trading dashboard on the
 Latest owner screenshots showed 5.5241 USDT in Unified and 1.2000 USDT in Funding after a withdrawal. Do not assume the original 20 USDT is still available or treat the paper initial balance as real capital. No fresh authenticated cloud balance check has been performed.
 
 Dashboard authentication/lookup control flow is covered with a Streamlit stub. app.py and connection modules compile. Streamlit is not installed in the test runtime, so browser rendering and a real hosted lookup have not been verified in this session.
+
+## Verified position accounting and sell cycle
+
+spot_accounting.py tracks only bot-owned assets derived from verified final execution receipts. Base-asset buy fees reduce held quantity. Quote fees affect cost/proceeds; base-asset sell fees consume additional holdings. Partial sells release proportional cost and reserved capital. Duplicate receipts/executions cannot alter balances twice. Unknown third-currency fees remain explicitly unpriced; net-profit commission estimates are suppressed until those fees can be valued. The 10% figure is only an estimate and never a debit or payout.
+
+The submission journal updates intent status, positions, execution IDs, and realized P&L in one immediate SQLite transaction. Sells cannot exceed bot-owned holdings. Failed sells leave positions intact. A fully verified close releases the matching capital reservation, allowing reuse within the original software ceiling. An older database with finalized receipts but no accounting history is rejected and requires a reviewed migration; it must not silently start with empty positions.
+
+plan_sell validates current spendable and bot-owned quantities separately, base-fee reserve, lot precision, minimum notional, maximum size, and source freshness. Dust remains unsold rather than increasing the order to satisfy a minimum. Tests cover the complete simulated buy, fee deduction, sell, realized P&L, restart, no resubmission, and allocation reuse. These tests do not validate live pricing, real balances, or cloud operation.
+
+Remaining operational blockers: no owner-approved automatic strategy is integrated; no durable production worker is wired to this code; no current authenticated Render balance/permission/eligibility check has passed. The old sol-bot screenshot showed no environment variables. Do not add keys to the old service or treat its Deploy status as evidence that the repaired bot is running.
