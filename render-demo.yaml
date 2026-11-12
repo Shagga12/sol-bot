@@ -1,0 +1,16 @@
+services:
+  - type: worker
+    name: capital-connect-demo-worker
+    runtime: python
+    repo: https://github.com/Shagga12/sol-bot
+    branch: capital-connect-ai-quant-v1-clean
+    region: singapore
+    plan: 0.5c-512mb
+    numInstances: 1
+    autoDeployTrigger: 'off'
+    buildCommand: python -m compileall -q capital_connect_v1
+    startCommand: python -m capital_connect_v1.worker --db /var/data/capital-connect-demo.sqlite3
+    disk:
+      name: capital-connect-demo-ledger
+      mountPath: /var/data
+      sizeGB: 1
