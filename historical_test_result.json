@@ -1,0 +1,5 @@
+{
+  "status": "FAILED",
+  "live_trading_ready": false,
+  "error": "Public Bybit data unavailable from this computer; no retries or alternate domains used"
+}
