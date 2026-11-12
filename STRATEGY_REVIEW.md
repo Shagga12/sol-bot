@@ -47,7 +47,7 @@ A small balance can also produce a sell below the exchange's minimum notional af
 - Fee-adjusted bot-owned positions, buy/sell cost accounting and realized P&L.
 - Offline buy and sell size checks, no-short-sale checks, and reservation limits.
 - The proposed simulation-only crossover/exit evaluator and decision tests.
-- 111 unit, control-flow and integration fixture tests pass. No exchange order was sent in testing. No real-market historical backtest or profitability evaluation has been completed.
+- 117 unit, control-flow and integration fixture tests pass. No exchange order was sent in testing. No real-market historical backtest or profitability evaluation has been completed.
 
 ## Remaining before a possible live setup
 
@@ -70,3 +70,7 @@ The private Capital Connect website and current Render services have not been ch
 ## Historical-data test status
 
 A 90-day public-data test was attempted and FAILED from the current workspace: Bybit public data could not be downloaded (HTML Site Unavailable response). No real historical performance is available. The standalone strategy_backtest.py can run on an eligible computer without API keys, saving a JSON report. It does not place orders or activate the bot. Next-bar execution, fees, adverse execution assumptions, exchange minimums, open positions and dust are represented; historical spread, liquidity and continuous stop performance remain unverified. The test must not be reported as successful merely because the fixture suite passes.
+
+## Dust-policy correction
+
+The owner's completed original 90-day test produced one entry/exit and a small loss. An unsellable 0.000000913 BTC remainder blocked further entries and generated repeated skip counts. Revised comparisons must distinguish the strict halt-on-dust policy from the alternative simulation-only quarantine policy. Quarantine preserves dust quantity/cost and only permits new simulated entries from remaining cash; it has not been approved or connected to live trading. Report a distinct dust event instead of implying thousands of profitable opportunities were missed. The corrected real-market comparison has not yet been run on a shared candle dataset.
