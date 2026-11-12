@@ -12,7 +12,7 @@ This branch is an undeployed repair draft. It does not enable live trading.
 
 ## Validation
 
-Run `python -m unittest discover -v`: 53 tests pass, including restart recovery, duplicate fills, rejected sells, partial/cancelled fills, rollback, competing connections, and the 20 USDT initial budget. Run `python paper_engine.py` for a temporary simulated buy/sell scenario; its prices and profit are fixtures, not market results.
+Run `python -m unittest discover -v`: 73 tests pass, including restart recovery, duplicate fills, rejected sells, partial/cancelled fills, rollback, competing connections, and the 20 USDT initial budget. Run `python paper_engine.py` for a temporary simulated buy/sell scenario; its prices and profit are fixtures, not market results.
 
 ## Order checks and read-only execution receipts
 
@@ -27,6 +27,16 @@ Documentation used:
 - https://bybit-exchange.github.io/docs/v5/order/create-order
 - https://bybit-exchange.github.io/docs/v5/order/open-order
 - https://bybit-exchange.github.io/docs/v5/order/execution
+
+## Submission component (unwired and disabled)
+
+bybit_submission.py now contains a signed Bybit spot limit-IOC BUY transport and a durable submission coordinator. The transport is disabled by default. The coordinator also requires explicit activation; neither is called by app.py or any deployed worker. Tests use fake credentials and injected fake transports only.
+
+The coordinator persists UNKNOWN before invoking the writer, never resends a previously claimed client ID, blocks a second unresolved intent, and distinguishes ACKNOWLEDGED from a verified final execution receipt. It keeps filled/partial capital reserved, releases only proven zero-fill intents, and checks the aggregate reserved ceiling of 20 USDT. This is a ceiling, not a claim that the owner still has 20 USDT available. The integration fixture uses 5.5241 USDT available and a 5.50 USDT plan, not actual funds.
+
+The writer signs the exact JSON bytes sent, uses only the documented mainnet endpoint, disables redirects, never retries writes, and sanitizes uncertain outcomes. It does not implement sell orders, a portfolio ledger, credential/region eligibility checks, refreshed runtime inputs, or a strategy. No existing UI or worker can activate it. Do not wire it into a live application until those missing pieces are integrated and verified. Its separate SQLite journal must be hosted durably before production use.
+
+An end-to-end fixture test covers planning, acknowledgement, partial-fill cancellation, base-currency fees, receipt verification, and restart without resubmission. There was no authenticated live exchange test and no production deployment.
 
 ## Remaining before live operation
 
