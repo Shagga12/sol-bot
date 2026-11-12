@@ -85,3 +85,50 @@ def plan_buy(*, instrument, instrument_at, bid, ask, quote_at, now,
                     'qty': format(qty, 'f'), 'price': format(price, 'f'),
                     'orderLinkId': order_link_id},
     }
+
+
+def plan_sell(*, instrument, instrument_at, bid, ask, quote_at, now,
+              spendable_base, balance_at, bot_owned_qty, requested_qty,
+              base_fee_reserve_rate, order_link_id):
+    """Offline sell plan: never sell externally owned coins or borrow.
+
+    base_fee_reserve_rate must come from an independently verified fee policy.
+    A nonzero reserve may leave dust; never increase quantity to meet a minimum.
+    """
+    fresh(now, quote_at, 5)
+    fresh(now, balance_at, 5)
+    fresh(now, instrument_at, 300)
+    symbol = instrument.get('symbol')
+    if (symbol not in PAIRS or instrument.get('quoteCoin') != 'USDT'
+            or instrument.get('baseCoin') != symbol[:-4]
+            or instrument.get('status') != 'Trading' or instrument.get('isPreListing', False)):
+        raise ValueError('Unsupported or inactive spot instrument')
+    if not isinstance(order_link_id,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,36}',order_link_id):
+        raise ValueError('Invalid unique client order ID')
+    bid, ask = number(bid,True), number(ask,True)
+    if bid > ask or (ask-bid)/ask > Decimal('.01'):
+        raise ValueError('Invalid or excessive spread')
+    owned, available, requested, fee = map(number,(bot_owned_qty,spendable_base,requested_qty,base_fee_reserve_rate))
+    if requested <= 0 or fee > Decimal('.05'):
+        raise ValueError('Invalid sell quantity or fee bound')
+    try:
+        lot = instrument['lotSizeFilter']
+        step = number(lot['basePrecision'],True)
+        tick = number(instrument['priceFilter']['tickSize'],True)
+        minimum = number(lot['minOrderAmt'],True)
+        maximum = number(lot['maxLimitOrderQty'],True)
+    except (KeyError,TypeError):
+        raise ValueError('Incomplete current instrument filters') from None
+    qty = rounded(requested,step,ROUND_DOWN)
+    fee_reserve = qty*fee
+    price = rounded(bid*(1-SLIPPAGE),tick,ROUND_UP)
+    if price > bid:
+        raise ValueError('No valid price tick inside the slippage bound')
+    if qty <= 0 or qty+fee_reserve > min(owned,available):
+        raise ValueError('Sell exceeds verified holdings including base fee reserve')
+    if qty > maximum or qty*price < minimum:
+        raise ValueError('Sell violates size filters; residual dust must remain unsold')
+    return {'mode':'PLAN_ONLY', 'base_fee_reserve':format(fee_reserve,'f'),
+            'payload':{'category':'spot','symbol':symbol,'side':'Sell','orderType':'Limit',
+                       'timeInForce':'IOC','isLeverage':0,'qty':format(qty,'f'),
+                       'price':format(price,'f'),'orderLinkId':order_link_id}}
