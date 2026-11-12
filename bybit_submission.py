@@ -1,7 +1,7 @@
-"""Unwired spot BUY submission component. Disabled by default; not an auto bot.
+"""Unwired spot BUY/SELL submission component. Disabled by default; not an auto bot.
 
 No CLI or dashboard calls this module. Tests inject a fake transport. Production
-activation, strategy, sell accounting and worker integration are separate work.
+activation, strategy and worker integration are separate work.
 """
 import hashlib
 import hmac
@@ -11,6 +11,7 @@ import sqlite3
 import time
 import urllib.request
 from decimal import Decimal, InvalidOperation
+from spot_accounting import SpotAccounting
 
 PAIRS = {'BTCUSDT', 'SOLUSDT', 'ETHUSDT', 'BNBUSDT'}
 CAP = Decimal('20')
@@ -37,13 +38,19 @@ def validate(plan):
     expected = {'category','symbol','side','orderType','timeInForce','isLeverage','qty','price','orderLinkId'}
     if set(p) != expected:
         raise SubmissionError('Unexpected order fields')
-    if (p['category'] != 'spot' or p['symbol'] not in PAIRS or p['side'] != 'Buy'
+    if (p['category'] != 'spot' or p['symbol'] not in PAIRS or p['side'] not in {'Buy','Sell'}
             or p['orderType'] != 'Limit' or p['timeInForce'] != 'IOC'
             or type(p['isLeverage']) is not int or p['isLeverage'] != 0):
-        raise SubmissionError('Only unleveraged spot limit-IOC buys are supported')
+        raise SubmissionError('Only unleveraged spot limit-IOC orders are supported')
     if not isinstance(p['orderLinkId'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,36}', p['orderLinkId']):
         raise SubmissionError('Invalid stable client order ID')
     qty, price = positive(p['qty']), positive(p['price'])
+    if p['side'] == 'Sell':
+        try: base_reserve = Decimal(str(plan.get('base_fee_reserve')))
+        except InvalidOperation: raise SubmissionError('Invalid base fee reserve') from None
+        if not base_reserve.is_finite() or base_reserve < 0:
+            raise SubmissionError('Invalid base fee reserve')
+        return dict(p), Decimal(0)
     reserve = positive(plan.get('maximum_quote_with_fee_reserve'))
     try:
         fee = Decimal(str(plan.get('fee_reserve_usdt')))
@@ -72,7 +79,7 @@ class BybitSpotWriter:
             raise SubmissionError('Both server-side credentials are required')
         notional = positive(payload.get('qty')) * positive(payload.get('price'))
         validate({'mode': 'PLAN_ONLY', 'payload': payload,
-                  'maximum_quote_with_fee_reserve': str(notional), 'fee_reserve_usdt': '0'})
+                  'maximum_quote_with_fee_reserve': str(notional), 'fee_reserve_usdt': '0', 'base_fee_reserve':'0'})
         body = json.dumps(payload, sort_keys=True, separators=(',', ':'), allow_nan=False)
         stamp = str(int(self.clock()*1000))
         sig = hmac.new(self.secret.encode(), (stamp+self.key+'5000'+body).encode(), hashlib.sha256).hexdigest()
@@ -102,6 +109,10 @@ class SubmissionJournal:
         self.db.execute('''CREATE TABLE IF NOT EXISTS submissions (
           client_id TEXT PRIMARY KEY, payload TEXT NOT NULL, initial_reserve TEXT NOT NULL, reserve TEXT NOT NULL,
           state TEXT NOT NULL, order_id TEXT, receipt TEXT)''')
+        self.accounting = SpotAccounting(self.db)
+        if self.db.execute("SELECT 1 FROM submissions s LEFT JOIN accounted_receipts a ON s.client_id=a.client_id WHERE s.state='FINAL' AND a.client_id IS NULL").fetchone():
+            self.db.close()
+            raise SubmissionError('Older final receipts require accounting migration before submission')
 
     def close(self):
         self.db.close()
@@ -123,7 +134,11 @@ class SubmissionJournal:
                 return False, dict(old)
             if self.db.execute("SELECT 1 FROM submissions WHERE state != 'FINAL'").fetchone():
                 raise SubmissionError('Resolve the outstanding submission before any new order')
-            committed = sum((Decimal(r[0]) for r in self.db.execute('SELECT reserve FROM submissions')), Decimal(0))
+            if payload['side'] == 'Sell':
+                available = self.accounting.position(payload['symbol'])[0]
+                if Decimal(payload['qty'])+Decimal(str(plan['base_fee_reserve'])) > available:
+                    raise SubmissionError('Sell exceeds bot-owned position including fee reserve')
+            committed = self.accounting.committed()
             if committed+reserve > CAP:
                 raise SubmissionError('Journal allocation ceiling reached; reconcile positions before proceeding')
             # Persist first, then send exactly once. Even a crash before the send
@@ -155,7 +170,7 @@ class SubmissionJournal:
             if row is None:
                 raise SubmissionError('No matching local intent')
             payload = json.loads(row['payload'])
-            if (receipt.get('symbol') != payload['symbol'] or receipt.get('side') != 'Buy'
+            if (receipt.get('symbol') != payload['symbol'] or receipt.get('side') != payload['side']
                     or (row['order_id'] and receipt.get('order_id') != row['order_id'])
                     or not isinstance(receipt.get('order_id'), str) or not receipt['order_id']):
                 raise SubmissionError('Receipt identity does not match intent')
@@ -165,7 +180,9 @@ class SubmissionJournal:
             except (KeyError, InvalidOperation, TypeError):
                 raise SubmissionError('Receipt amount missing') from None
             if (not qty.is_finite() or not value.is_finite() or qty < 0 or value < 0
-                    or qty > Decimal(payload['qty']) or value > qty*Decimal(payload['price'])
+                    or qty > Decimal(payload['qty'])
+                    or (payload['side'] == 'Buy' and value > qty*Decimal(payload['price']))
+                    or (payload['side'] == 'Sell' and value < qty*Decimal(payload['price']))
                     or (qty == 0) != (value == 0)):
                 raise SubmissionError('Receipt exceeds the submitted limit or quantity')
             status = receipt.get('outcome')
@@ -178,9 +195,10 @@ class SubmissionJournal:
             encoded = json.dumps(receipt, sort_keys=True, separators=(',', ':'), allow_nan=False)
             if row['state'] == 'FINAL' and row['receipt'] != encoded:
                 raise SubmissionError('Conflicting final receipt')
-            # Release only proven zero-fill intents. Filled/partial buys retain
-            # their full capital reservation until sell accounting is integrated.
-            reserve = '0' if qty == 0 else row['reserve']
+            self.accounting.apply(receipt, buy_reserve=row['initial_reserve'])
+            # Open buys retain their reservation in the position ledger. Sells
+            # release the matching proportional cost/reserve atomically.
+            reserve = '0' if qty == 0 or payload['side'] == 'Sell' else row['reserve']
             self.db.execute("UPDATE submissions SET state='FINAL',reserve=?,order_id=?,receipt=? WHERE client_id=?",
                             (reserve, receipt['order_id'], encoded, receipt['client_id']))
             self.db.execute('COMMIT')
