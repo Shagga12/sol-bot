@@ -12,7 +12,7 @@ This branch is an undeployed repair draft. It does not enable live trading.
 
 ## Validation
 
-Run `python -m unittest discover -v`: 86 tests pass, including restart recovery, duplicate fills, rejected sells, partial/cancelled fills, rollback, competing connections, and the 20 USDT initial budget. Run `python paper_engine.py` for a temporary simulated buy/sell scenario; its prices and profit are fixtures, not market results.
+Run `python -m unittest discover -v`: 100 tests pass, including restart recovery, duplicate fills, rejected sells, partial/cancelled fills, rollback, competing connections, and the 20 USDT initial budget. Run `python paper_engine.py` for a temporary simulated buy/sell scenario; its prices and profit are fixtures, not market results.
 
 ## Order checks and read-only execution receipts
 
@@ -59,3 +59,9 @@ The submission journal updates intent status, positions, execution IDs, and real
 plan_sell validates current spendable and bot-owned quantities separately, base-fee reserve, lot precision, minimum notional, maximum size, and source freshness. Dust remains unsold rather than increasing the order to satisfy a minimum. Tests cover the complete simulated buy, fee deduction, sell, realized P&L, restart, no resubmission, and allocation reuse. These tests do not validate live pricing, real balances, or cloud operation.
 
 Remaining operational blockers: no owner-approved automatic strategy is integrated; no durable production worker is wired to this code; no current authenticated Render balance/permission/eligibility check has passed. The old sol-bot screenshot showed no environment variables. Do not add keys to the old service or treat its Deploy status as evidence that the repaired bot is running.
+
+## Strategy proposal checkpoint
+
+STRATEGY_REVIEW.md and strategy_proposal.json contain an unapproved, unbacktested BTCUSDT-only simulation proposal: closed 15-minute 20/50 SMA crossover entry, estimated net +2% / -1% exits, bearish-crossover exit, one position, at most two entries daily, and a daily new-entry pause after 2% realized losses. strategy_signals.py implements a pure evaluator with stale-data, unresolved-order, pause and duplicate-candle guards. It has no network or execution imports and always reports permits_live_order=false. Live allocation is unset and live activation is false. Thresholds are test examples rather than profitability claims or guaranteed risk caps.
+
+100 tests now pass. The proposal does not implement a persistent scheduler, actual market backtesting, live order activation or independently verified continuous/protective exit handling. Full operational blockers still apply. The owner has authorized preparation and review, not autonomous discretionary live trading.
