@@ -11,9 +11,13 @@ class ConnectionError(Exception):
     pass
 
 def get(endpoint, params=None, key=None, secret=None):
-    allowed = {'/v5/market/tickers', '/v5/user/query-api', '/v5/account/wallet-balance'}
+    allowed = {'/v5/market/tickers', '/v5/user/query-api', '/v5/account/wallet-balance',
+               '/v5/market/instruments-info', '/v5/order/realtime',
+               '/v5/order/history', '/v5/execution/list'}
     if endpoint not in allowed:
         raise ConnectionError('Unsupported diagnostic endpoint.')
+    if endpoint not in {'/v5/market/tickers', '/v5/market/instruments-info'} and (not key or not secret):
+        raise ConnectionError('Both Bybit credential settings are required.')
     query = urllib.parse.urlencode(params or {})
     headers = {'Accept': 'application/json'}
     if key or secret:
@@ -56,3 +60,4 @@ def account_check(key, secret):
     if info.get('readOnly') != 1:
         raise ConnectionError('Use a separate read-only API key for this diagnostic build.')
     return get('/v5/account/wallet-balance', {'accountType': 'UNIFIED', 'coin': 'USDT,SOL'}, key, secret)
+
