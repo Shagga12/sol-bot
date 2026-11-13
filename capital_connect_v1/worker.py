@@ -7,10 +7,33 @@ import os
 import signal
 import threading
 import time
+from urllib.request import Request, build_opener, HTTPRedirectHandler
 from capital_connect_v1.engine import get_public_price, SYMBOLS
 from capital_connect_v1.paper import PaperLedger, INTERVAL
 
 log = logging.getLogger('capital_connect')
+
+def publish_status(ledger):
+    url = os.getenv('CAPITAL_REPORT_URL')
+    token = os.getenv('CAPITAL_REPORT_TOKEN')
+    if not url or not token:
+        return
+    if url != 'https://capital-connect-preflight.onrender.com/api/report':
+        log.error('Dashboard report destination rejected')
+        return
+    class NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+    try:
+        request = Request(url, data=json.dumps(ledger.status()).encode(), method='POST',
+                          headers={'Authorization': 'Bearer '+token, 'Content-Type': 'application/json'})
+        with build_opener(NoRedirect).open(request, timeout=15) as response:
+            if response.status != 200:
+                raise RuntimeError()
+        log.info('Dashboard demo report delivered')
+    except Exception as error:
+        log.error('Dashboard report unavailable (%s); demo ledger preserved', type(error).__name__)
+
 
 def run(path, once=False):
     stop = threading.Event()
@@ -30,6 +53,7 @@ def run(path, once=False):
                     prices = {s: get_public_price(s) for s in SYMBOLS}
                     result = ledger.scan(prices, time.time())
                     log.info('%s', json.dumps({'mode': 'DEMO', 'decisions': result}))
+                    publish_status(ledger)
                 except Exception as error:
                     # No invented price, no ledger mutation after failed fetch.
                     log.error('Scan failed; no demo trades submitted (%s)', type(error).__name__)
