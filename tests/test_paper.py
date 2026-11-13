@@ -19,6 +19,14 @@ class PaperTests(unittest.TestCase):
     def warmup(self):
         for i in range(30):
             self.ledger.scan(self.prices(100+i), self.start+i*900)
+    def test_warmup_progress(self):
+        result = self.ledger.scan(self.prices(100), self.start)
+        self.assertTrue(all(r["reason"] == "warming_up_price_history" for r in result))
+        self.assertEqual(result[0]["history_samples"], 1)
+        self.assertEqual(result[0]["warmup_remaining_minutes"], 435)
+        result = self.ledger.scan(self.prices(102), self.start+1800)
+        self.assertEqual(result[0]["history_samples"], 1)
+
     def test_restart_and_duplicate_scan(self):
         self.warmup()
         before = self.ledger.status()

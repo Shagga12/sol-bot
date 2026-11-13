@@ -29,7 +29,7 @@ skips the complete scan and does not invent a price. SIGTERM/SIGINT stop the loo
 - The strategy requires 30 consecutive sampled price buckets (about 7.5 hours).
   These are sampled ticker prices, not exchange candle closes. Missing buckets
   require a new consecutive warmup. During warmup the reason is
-  `insufficient_or_invalid_market_data`.
+  `warming_up_price_history`; scan logs include collected/required samples and remaining minutes. Invalid prices are reported separately as `invalid_market_price`.
 - A 10-sample average above the 30-sample average permits a demo buy.
 - Size is capped at 10 simulated USDT and 10% of available simulated cash.
 - Positions close in simulation after a sampled 1% rise or fall. Stops are checked

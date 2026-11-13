@@ -61,8 +61,12 @@ class PaperLedger:
                 self.db.execute('INSERT INTO samples VALUES (?,?,?)', (symbol, bucket, str(price)))
                 rows = self.db.execute('SELECT bucket,price FROM samples WHERE symbol=? ORDER BY bucket DESC LIMIT 30',
                                        (symbol,)).fetchall()
-                contiguous = len(rows) == 30 and rows[-1]['bucket'] == bucket - 29
-                closes = [r['price'] for r in reversed(rows)] if contiguous else []
+                consecutive = 0
+                for row in rows:
+                    if row['bucket'] != bucket - consecutive:
+                        break
+                    consecutive += 1
+                closes = [r['price'] for r in reversed(rows[:consecutive])]
                 position = self.db.execute('SELECT * FROM positions WHERE symbol=?', (symbol,)).fetchone()
                 action, reason, realized = 'WAIT', 'position_already_open', D(0)
                 if position:
@@ -87,7 +91,9 @@ class PaperLedger:
                                         (symbol, str(price), str(qty), str(cost)))
                 self.db.execute('INSERT INTO events(ts,symbol,action,reason,price,pnl) VALUES (?,?,?,?,?,?)',
                                 (int(timestamp), symbol, action, reason, str(price), str(realized)))
-                results.append({'symbol': symbol, 'action': action, 'reason': reason, 'price': str(price)})
+                results.append({'symbol': symbol, 'action': action, 'reason': reason, 'price': str(price),
+                                'history_samples': consecutive, 'history_required': 30,
+                                'warmup_remaining_minutes': max(0, 30-consecutive)*15})
             self.db.execute('UPDATE account SET cash=? WHERE id=1', (str(cash),))
             self.db.execute('DELETE FROM samples WHERE bucket<?', (bucket - 120,))
             self.db.execute('COMMIT')

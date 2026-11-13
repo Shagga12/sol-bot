@@ -23,8 +23,10 @@ def evaluate(closes, available_usdt, daily_realized_pnl_usdt, start_equity_usdt,
     pnl = D(str(daily_realized_pnl_usdt))
     equity = D(str(start_equity_usdt))
     spread = D(str(spread_pct))
-    if len(values) < MIN_CANDLES or any(not v.is_finite() or v <= 0 for v in values):
-        return Decision("WAIT", "insufficient_or_invalid_market_data")
+    if any(not v.is_finite() or v <= 0 for v in values):
+        return Decision("WAIT", "invalid_market_price")
+    if len(values) < MIN_CANDLES:
+        return Decision("WAIT", "warming_up_price_history")
     if any(not v.is_finite() for v in (cash, pnl, equity, spread)) or cash < 0 or equity <= 0 or spread < 0:
         return Decision("WAIT", "invalid_account_or_spread_data")
     if pnl <= -(equity * MAX_DAILY_LOSS_PCT):
