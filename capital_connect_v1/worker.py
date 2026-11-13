@@ -27,7 +27,7 @@ def publish_status(ledger):
     try:
         request = Request(url, data=json.dumps(ledger.status()).encode(), method='POST',
                           headers={'Authorization': 'Bearer '+token, 'Content-Type': 'application/json'})
-        with build_opener(NoRedirect).open(request, timeout=15) as response:
+        with build_opener(NoRedirect).open(request, timeout=90) as response:
             if response.status != 200:
                 raise RuntimeError()
         log.info('Dashboard demo report delivered')
