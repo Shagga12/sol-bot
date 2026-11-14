@@ -10,18 +10,19 @@ import json
 import os
 import threading
 import time
+from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 REPORT = None
 CHECK_LOCK = threading.Lock()
 LAST_CHECK = 0
 LOCK = threading.Lock()
-PAGE = '''<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Capital Connect</title><style>body{background:#101923;color:#edf4fa;font:18px system-ui;max-width:1050px;margin:auto;padding:28px}h1{color:#61dfbd}section{background:#1b2a39;border-radius:16px;padding:22px;margin:18px 0}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:12px;border-bottom:1px solid #425060}button{padding:12px;font:inherit}small{color:#acbdce}.scroll{overflow:auto}</style><h1>Capital Connect</h1><p>Demo bot monitor · Singapore · Real orders disabled</p><button onclick="load()">Refresh activity</button><p id="message">Loading…</p><section id="totals"></section><section><h2>Open demo positions</h2><div id="positions" class="scroll"></div></section><section><h2>Recent demo trades</h2><div id="trades" class="scroll"></div></section><section><h2>Check your real Bybit account</h2><p>Use a separate read-only HMAC API key for account monitoring. Enter it here only. Keys are used for this check and are not saved.</p><form id="bybit-form" autocomplete="off"><p><label>API key<br><input name="apiKey" type="password" required autocomplete="off" autocapitalize="none" spellcheck="false" style="width:100%;box-sizing:border-box;padding:12px;font:inherit"></label></p><p><label>API secret<br><input name="apiSecret" type="password" required autocomplete="new-password" autocapitalize="none" spellcheck="false" style="width:100%;box-sizing:border-box;padding:12px;font:inherit"></label></p><button id="bybit-check" type="submit">Check Bybit connection</button></form><p id="bybit-result" role="status" aria-live="polite">Not checked. Real trading is disabled.</p></section><section><h2>Manual trading readiness</h2><p>Bybit connection and spendable funds still require verification. This dashboard cannot activate or submit real orders.</p></section><script>
-const el=id=>document.getElementById(id);
-el('bybit-form').addEventListener('submit',async e=>{e.preventDefault();const f=e.target,b=el('bybit-check');b.disabled=true;el('bybit-result').textContent='Checking account access…';const body=JSON.stringify({apiKey:f.elements.apiKey.value.trim(),apiSecret:f.elements.apiSecret.value.trim()});try{const r=await fetch('/api/bybit/check',{method:'POST',headers:{'Content-Type':'application/json'},body,cache:'no-store',signal:AbortSignal.timeout(35000)});const d=await r.json();if(!r.ok||!d.verified)throw Error(d.error||'Connection not verified');el('bybit-result').textContent='Connection verified at '+new Date(d.checked_at*1000).toLocaleString()+'. Unified USDT wallet: '+(d.wallet_usdt??'not returned')+'; locked: '+(d.locked_usdt??'not returned')+'. Key access: '+d.key_access+'. '+d.note+' Keys were not saved. Automatic real orders remain disabled.';}catch(e){el('bybit-result').textContent=e.message;}finally{f.reset();b.disabled=false;}});
-function table(id,rows,fields){const t=document.createElement('table'),head=t.insertRow();for(const f of fields){const th=document.createElement('th');th.textContent=f;head.append(th)}for(const row of rows){const r=t.insertRow();for(const f of fields)r.insertCell().textContent=row[f]??'—'}el(id).replaceChildren(t)}
-async function load(){try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw Error('Unable to read worker report');const d=await r.json();if(!d.report){el('message').textContent='Waiting for the worker’s first report. No results shown yet.';return}const s=d.report,age=Math.round((Date.now()/1000-d.received_at)/60);el('message').textContent=(age>20?'STALE REPORT — ':'Latest worker report — ')+age+' minutes ago. Scans every 15 minutes.';el('totals').textContent='Mode: DEMO | Demo cash: '+s.cash_usdt+' USDT | Realized demo P&L: '+s.realized_pnl_usdt+' USDT | Estimated commission: '+s.commission_estimate_usdt+' USDT';table('positions',s.positions,['symbol','entry','qty','cost']);table('trades',s.recent_trades.map(x=>({...x,time:new Date(x.ts*1000).toLocaleString()})),['time','symbol','action','reason','price','pnl'])}catch(e){el('message').textContent=e.message+' — previous data may be stale.'}}load();setInterval(load,60000);
-</script></html>'''
+from pathlib import Path
+
+DASHBOARD = Path(__file__).resolve().parent / 'dashboard'
+SYMBOLS = ('BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT')
+VERSION = 'mobile-desk-v1'
+
 
 class ConnectionCheckError(Exception):
     pass
@@ -31,7 +32,8 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 def bybit_read(path, key, secret, params=None):
-    if path not in ('/v5/user/query-api', '/v5/account/wallet-balance'):
+    if path not in ('/v5/user/query-api', '/v5/account/wallet-balance',
+                    '/v5/order/spot-borrow-check', '/v5/market/instruments-info'):
         raise ValueError('Unsupported read')
     query = urlencode(params or {})
     ts = str(int(time.time()*1000))
@@ -55,6 +57,9 @@ def bybit_read(path, key, secret, params=None):
     return data['result']
 
 def check_bybit(input):
+    symbol=input.get('symbol','BTCUSDT')
+    if symbol not in SYMBOLS:
+        raise ValueError('Select a supported USDT spot pair.')
     key,secret=input.get('apiKey',''),input.get('apiSecret','')
     if not isinstance(key,str) or not isinstance(secret,str) or not re.fullmatch(r'[A-Za-z0-9_-]{10,128}',key.strip()) or not re.fullmatch(r'[A-Za-z0-9_-]{10,256}',secret.strip()):
         raise ValueError('Enter a system-generated HMAC API key and secret, not your Bybit password.')
@@ -65,11 +70,44 @@ def check_bybit(input):
     if account is None:
         raise ConnectionCheckError('API access verified, but no Unified wallet was returned.')
     coin=next((x for x in account.get('coin',[]) if x.get('coin')=='USDT'),{})
-    return {'verified':True,'checked_at':time.time(),'account':'UNIFIED',
+    funding = {'available_spot_usdt': None, 'minimum_order_usdt': None,
+               'funding_note': 'Available spot funds and current pair minimum were not verified.'}
+    try:
+        available=bybit_read('/v5/order/spot-borrow-check',key,secret,
+                             {'category':'spot','symbol':symbol,'side':'Buy'})
+        if available.get('symbol')!=symbol or available.get('side')!='Buy':
+            raise ConnectionCheckError('Unexpected spot availability response.')
+        actual=Decimal(str(available.get('spotMaxTradeAmount')))
+        if not actual.is_finite() or actual<0:
+            raise ValueError()
+        funding['available_spot_usdt']=str(actual)
+        rules=bybit_read('/v5/market/instruments-info',key,secret,{'category':'spot','symbol':symbol})
+        instrument=next((x for x in rules.get('list',[]) if x.get('symbol')==symbol and x.get('status')=='Trading'),None)
+        minimum=Decimal(str((instrument or {}).get('lotSizeFilter',{}).get('minOrderAmt')))
+        if not minimum.is_finite() or minimum<=0:
+            raise ValueError()
+        funding.update(minimum_order_usdt=str(minimum),
+                       funding_note='Non-borrowed spot availability and the pair minimum were returned. Order sizing and fees still require validation.')
+    except (ConnectionCheckError, InvalidOperation, ValueError, TypeError, KeyError, OSError):
+        pass
+    return {'verified':True,'checked_at':time.time(),'account':'UNIFIED','symbol':symbol,
         'key_access':{0:'Read/write',1:'Read-only'}.get(info.get('readOnly'),'Unknown'),
         'wallet_usdt':coin.get('walletBalance'), 'locked_usdt':coin.get('locked'),
         'note':'Wallet balance is not a verified spendable amount. Check Available in Bybit before placing your trade.',
-        'automatic_real_orders':False,'credentials_saved':False}
+        'automatic_real_orders':False,'credentials_saved':False,**funding}
+
+def validate_report(report):
+    if not isinstance(report,dict) or report.get('mode')!='DEMO' or report.get('live_order_execution') is not False:
+        raise ValueError('Only demo worker reports are accepted')
+    for field in ('positions','recent_trades'):
+        if not isinstance(report.get(field),list) or len(report[field])>500 or any(not isinstance(row,dict) for row in report[field]):
+            raise ValueError('Invalid report rows')
+    for field in ('last_decisions',):
+        if field in report and (not isinstance(report[field],list) or any(not isinstance(row,dict) for row in report[field])):
+            raise ValueError('Invalid decisions')
+    # Strict JSON disallows NaN and Infinity in authenticated worker reports.
+    json.dumps(report,allow_nan=False)
+    return report
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -78,16 +116,22 @@ class Handler(BaseHTTPRequestHandler):
         data=body.encode();self.send_response(status)
         self.send_header('Content-Type',content_type);self.send_header('Cache-Control','private, no-store')
         self.send_header('X-Content-Type-Options','nosniff');self.send_header('X-Frame-Options','DENY')
+        self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+        self.send_header('Referrer-Policy','no-referrer')
         self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
     def viewer(self):
         password=os.getenv('CAPITAL_VIEW_PASSWORD','')
         expected='Basic '+base64.b64encode(('ron:'+password).encode()).decode()
         return bool(password) and hmac.compare_digest(self.headers.get('Authorization',''),expected)
     def do_GET(self):
-        if self.path=='/health':return self.send('{"status":"ok","live_orders":false}')
+        if self.path=='/health':return self.send(json.dumps({'status':'ok','live_orders':False,'dashboard_version':VERSION}))
         if not self.viewer():
             self.send_response(401);self.send_header('WWW-Authenticate','Basic realm="Capital Connect", charset="UTF-8"');self.send_header('Cache-Control','no-store');self.end_headers();return
-        if self.path=='/':return self.send(PAGE,content_type='text/html; charset=utf-8')
+        if self.path=='/':return self.send((DASHBOARD/'index.html').read_text(),content_type='text/html; charset=utf-8')
+        if self.path in ('/dashboard.css','/dashboard.js'):
+            name=self.path[1:]
+            kind='text/css' if name.endswith('.css') else 'text/javascript'
+            return self.send((DASHBOARD/name).read_text(),content_type=kind+'; charset=utf-8')
         if self.path=='/api/status':
             with LOCK:data=json.dumps(REPORT or {'report':None})
             return self.send(data)
@@ -96,7 +140,7 @@ class Handler(BaseHTTPRequestHandler):
         global REPORT, LAST_CHECK
         if self.path=='/api/bybit/check':
             if not self.viewer():return self.send('{"error":"Sign in again before checking Bybit."}',401)
-            if self.headers.get('Origin')!='https://capital-connect-preflight.onrender.com':return self.send('{"error":"Request origin not allowed."}',403)
+            if self.headers.get('Origin')!=os.getenv('CAPITAL_PUBLIC_ORIGIN','https://capital-connect-preflight.onrender.com'):return self.send('{"error":"Request origin not allowed."}',403)
             if self.headers.get('Content-Type','').split(';')[0]!='application/json':return self.send('{}',415)
             try:
                 size=int(self.headers.get('Content-Length','0'))
@@ -115,10 +159,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             size=int(self.headers.get('Content-Length','0'))
             if not 0<size<=200000:return self.send('{}',413)
-            report=json.loads(self.rfile.read(size))
-            if report.get('mode')!='DEMO' or report.get('live_order_execution') is not False:raise ValueError()
-            for key in ['positions','recent_trades']:
-                if not isinstance(report.get(key),list):raise ValueError()
+            report=validate_report(json.loads(self.rfile.read(size)))
             with LOCK:REPORT={'received_at':time.time(),'report':report}
             return self.send('{"accepted":true}')
         except (ValueError,TypeError):return self.send('{}',400)
