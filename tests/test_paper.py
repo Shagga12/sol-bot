@@ -38,10 +38,10 @@ class PaperTests(unittest.TestCase):
         self.assertEqual(before, self.ledger.status())
     def test_exit_and_fees(self):
         self.warmup()
-        self.ledger.scan(self.prices(132), self.start+30*900)
+        self.ledger.scan(self.prices(136), self.start+30*900)
         status = self.ledger.status()
         self.assertEqual(status['positions'], [])
-        expected = 4*(D(10)*(1-D('.001'))/D(129)*D(132)*(1-D('.001'))-D(10))
+        expected = 4*(D(10)*(1-D('.001'))/D(129)*D(136)*(1-D('.001'))-D(10))
         self.assertAlmostEqual(D(status['realized_pnl_usdt']), expected)
         self.assertAlmostEqual(D(status['cash_usdt']), D(1000)+expected)
         self.assertAlmostEqual(D(status['commission_estimate_usdt']), expected*D('.1'))
@@ -51,6 +51,14 @@ class PaperTests(unittest.TestCase):
         unrealized = 4*(D(10)*(1-D('.001'))**2-D(10))
         self.assertEqual(D(status['unrealized_pnl_after_exit_fee_usdt']), unrealized)
         self.assertEqual(D(status['estimated_liquidation_equity_usdt']), D(1000)+unrealized)
+    def test_four_percent_target_is_after_fees(self):
+        self.warmup()
+        self.ledger.scan(self.prices(D(129)*D('1.04')), self.start+30*900)
+        self.assertEqual(len(self.ledger.status()['positions']), 4)
+        self.ledger.scan(self.prices(D(129)*D('1.043')), self.start+31*900)
+        status = self.ledger.status()
+        self.assertEqual(status['positions'], [])
+        self.assertGreaterEqual(D(status['realized_pnl_usdt']), D('1.6'))
     def test_bad_data_does_not_mutate(self):
         before = self.ledger.status()
         for price in ['NaN', 'Infinity', '-1', '0']:

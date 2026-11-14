@@ -8,10 +8,10 @@ from capital_connect_v1.strategy import evaluate
 
 INTERVAL = 900
 FEE = D('0.001')  # Simulation assumption; not an exchange fee quote.
-TAKE_PROFIT = D('0.01')
+TAKE_PROFIT = D('0.04')  # Net return on position cost after simulated exit fee.
 STOP_LOSS = D('0.01')
 STOP_COOLDOWN_BUCKETS = 4
-STRATEGY_VERSION = 'demo-trend-cooldown-v2'
+STRATEGY_VERSION = 'demo-trend-cooldown-net4-v3'
 
 class PaperLedger:
     def __init__(self, path, initial_cash='1000'):
@@ -73,14 +73,15 @@ class PaperLedger:
                 action, reason, realized = 'WAIT', 'position_already_open', D(0)
                 if position:
                     change = price / D(position['entry']) - 1
-                    if change >= TAKE_PROFIT or change <= -STOP_LOSS:
-                        proceeds = D(position['qty']) * price * (1 - FEE)
+                    proceeds = D(position['qty']) * price * (1 - FEE)
+                    net_return = proceeds / D(position['cost']) - 1
+                    if net_return >= TAKE_PROFIT or change <= -STOP_LOSS:
                         realized = proceeds - D(position['cost'])
                         cash += proceeds
                         pnl += realized
                         self.db.execute('DELETE FROM positions WHERE symbol=?', (symbol,))
                         action = 'DEMO_SELL'
-                        reason = 'take_profit' if change >= TAKE_PROFIT else 'stop_loss'
+                        reason = 'take_profit' if net_return >= TAKE_PROFIT else 'stop_loss'
                 else:
                     # Spread is modeled as zero in this paper simulator, not measured.
                     decision = evaluate(closes, cash, pnl, start_equity, 0)
@@ -123,6 +124,8 @@ class PaperLedger:
         pnl = sum((D(r[0]) for r in self.db.execute("SELECT pnl FROM events WHERE action='DEMO_SELL'")), D(0))
         return {'name': 'Capital Connect', 'mode': 'DEMO', 'live_order_execution': False,
                 'strategy_version': STRATEGY_VERSION,
+                'take_profit_net_return_target': str(TAKE_PROFIT),
+                'stop_loss_price_move': str(STOP_LOSS),
                 'strategy_validation': 'experimental; profitability not established',
                 'cash_usdt': cash, 'realized_pnl_usdt': str(pnl),
                 'estimated_liquidation_equity_usdt': str(D(cash)+marked_value),
