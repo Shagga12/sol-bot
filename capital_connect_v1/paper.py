@@ -10,6 +10,8 @@ INTERVAL = 900
 FEE = D('0.001')  # Simulation assumption; not an exchange fee quote.
 TAKE_PROFIT = D('0.01')
 STOP_LOSS = D('0.01')
+STOP_COOLDOWN_BUCKETS = 4
+STRATEGY_VERSION = 'demo-trend-cooldown-v2'
 
 class PaperLedger:
     def __init__(self, path, initial_cash='1000'):
@@ -83,6 +85,12 @@ class PaperLedger:
                     # Spread is modeled as zero in this paper simulator, not measured.
                     decision = evaluate(closes, cash, pnl, start_equity, 0)
                     action, reason = decision.action, decision.reason
+                    last_stop = self.db.execute(
+                        "SELECT MAX(ts) FROM events WHERE symbol=? AND action='DEMO_SELL' AND reason='stop_loss'",
+                        (symbol,)).fetchone()[0]
+                    if (last_stop is not None and
+                            bucket - int(last_stop) // INTERVAL <= STOP_COOLDOWN_BUCKETS):
+                        action, reason = 'WAIT', 'stop_loss_cooldown'
                     if action == 'DEMO_BUY':
                         cost = decision.budget_usdt
                         qty = cost * (1 - FEE) / price
@@ -108,6 +116,8 @@ class PaperLedger:
             "SELECT * FROM events WHERE action != 'WAIT' ORDER BY id DESC LIMIT 100")]
         pnl = sum((D(r[0]) for r in self.db.execute("SELECT pnl FROM events WHERE action='DEMO_SELL'")), D(0))
         return {'name': 'Capital Connect', 'mode': 'DEMO', 'live_order_execution': False,
+                'strategy_version': STRATEGY_VERSION,
+                'strategy_validation': 'experimental; profitability not established',
                 'cash_usdt': cash, 'realized_pnl_usdt': str(pnl),
                 'commission_estimate_usdt': str(max(D(0), pnl) * D('0.10')),
                 'positions': [dict(r) for r in self.db.execute('SELECT * FROM positions')],

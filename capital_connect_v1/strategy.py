@@ -39,6 +39,12 @@ def evaluate(closes, available_usdt, daily_realized_pnl_usdt, start_equity_usdt,
     long_ma = sum(values[-30:]) / D(30)
     if short_ma <= long_ma:
         return Decision("WAIT", "no_buy_signal")
+    # Experimental demo filter: reject a falling longer average or a price
+    # below that average, even while the fast average still lags above it.
+    older_ma = sum(values[-30:-15]) / D(15)
+    newer_ma = sum(values[-15:]) / D(15)
+    if newer_ma <= older_ma or values[-1] <= long_ma:
+        return Decision("WAIT", "trend_not_confirmed")
     budget = min(MAX_TRADE_USDT, cash * MAX_ALLOCATION_PCT)
     if budget <= 0:
         return Decision("WAIT", "no_available_balance")

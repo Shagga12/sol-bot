@@ -72,6 +72,17 @@ class PaperTests(unittest.TestCase):
             self.assertEqual(len(other.status()['recent_trades']), 4)
         finally:
             other.close()
+    def test_stop_cooldown_survives_restart_and_expires(self):
+        self.warmup()
+        self.ledger.scan(self.prices(120), self.start+30*900)
+        self.ledger.close()
+        self.ledger = PaperLedger(self.path)
+        for i in range(31, 35):
+            result = self.ledger.scan(self.prices(129+i-30), self.start+i*900)
+            self.assertTrue(all(r['reason']=='stop_loss_cooldown' for r in result))
+            self.assertEqual(self.ledger.status()['positions'], [])
+        result = self.ledger.scan(self.prices(135), self.start+35*900)
+        self.assertTrue(all(r['action']=='DEMO_BUY' for r in result))
 
 if __name__ == '__main__':
     unittest.main()

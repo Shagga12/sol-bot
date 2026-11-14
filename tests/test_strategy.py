@@ -23,6 +23,9 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(evaluate([1,2], 100, 0, 100, "0.001").action, "WAIT")
     def test_bad_price_blocks(self):
         self.assertEqual(evaluate([0]*30, 100, 0, 100, "0.001").action, "WAIT")
+    def test_rejects_price_below_trend_despite_fast_average_above_slow(self):
+        closes = [100]*20 + [110]*9 + [99]
+        self.assertEqual(evaluate(closes, 100, 0, 100, '.001').reason, 'trend_not_confirmed')
 
 if __name__ == "__main__":
     unittest.main()
