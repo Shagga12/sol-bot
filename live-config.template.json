@@ -1,0 +1,10 @@
+{
+  "environment": "testnet",
+  "symbol": "BTCUSDT",
+  "capital_usdt": null,
+  "order_usdt": null,
+  "daily_loss_usdt": null,
+  "stop_loss_fraction": null,
+  "take_profit_fraction": null,
+  "slippage_percent": null
+}
