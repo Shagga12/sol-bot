@@ -45,6 +45,12 @@ class PaperTests(unittest.TestCase):
         self.assertAlmostEqual(D(status['realized_pnl_usdt']), expected)
         self.assertAlmostEqual(D(status['cash_usdt']), D(1000)+expected)
         self.assertAlmostEqual(D(status['commission_estimate_usdt']), expected*D('.1'))
+    def test_open_equity_includes_both_sides_fees(self):
+        self.warmup()
+        status = self.ledger.status()
+        unrealized = 4*(D(10)*(1-D('.001'))**2-D(10))
+        self.assertEqual(D(status['unrealized_pnl_after_exit_fee_usdt']), unrealized)
+        self.assertEqual(D(status['estimated_liquidation_equity_usdt']), D(1000)+unrealized)
     def test_bad_data_does_not_mutate(self):
         before = self.ledger.status()
         for price in ['NaN', 'Infinity', '-1', '0']:

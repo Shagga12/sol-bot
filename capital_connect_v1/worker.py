@@ -53,6 +53,11 @@ def run(path, once=False):
                     prices = {s: get_public_price(s) for s in SYMBOLS}
                     result = ledger.scan(prices, time.time())
                     log.info('%s', json.dumps({'mode': 'DEMO', 'decisions': result}))
+                    status = ledger.status()
+                    log.info('Demo performance %s', json.dumps({key: status[key] for key in (
+                        'strategy_version', 'cash_usdt', 'realized_pnl_usdt',
+                        'unrealized_pnl_after_exit_fee_usdt', 'total_pnl_after_exit_fee_usdt',
+                        'estimated_liquidation_equity_usdt', 'valuation_timestamp')}))
                     publish_status(ledger)
                 except Exception as error:
                     # No invented price, no ledger mutation after failed fetch.

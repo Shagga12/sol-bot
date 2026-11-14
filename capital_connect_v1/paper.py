@@ -112,6 +112,12 @@ class PaperLedger:
 
     def status(self):
         cash = self.db.execute('SELECT cash FROM account WHERE id=1').fetchone()[0]
+        positions = [dict(r) for r in self.db.execute('SELECT * FROM positions')]
+        latest = self.db.execute('SELECT MAX(bucket) FROM samples').fetchone()[0]
+        marks = {r['symbol']: D(r['price']) for r in self.db.execute(
+            'SELECT symbol,price FROM samples WHERE bucket=?', (latest,))}
+        marked_value = sum((D(r['qty'])*marks[r['symbol']]*(1-FEE) for r in positions), D(0))
+        unrealized = marked_value - sum((D(r['cost']) for r in positions), D(0))
         trades = [dict(r) for r in self.db.execute(
             "SELECT * FROM events WHERE action != 'WAIT' ORDER BY id DESC LIMIT 100")]
         pnl = sum((D(r[0]) for r in self.db.execute("SELECT pnl FROM events WHERE action='DEMO_SELL'")), D(0))
@@ -119,8 +125,12 @@ class PaperLedger:
                 'strategy_version': STRATEGY_VERSION,
                 'strategy_validation': 'experimental; profitability not established',
                 'cash_usdt': cash, 'realized_pnl_usdt': str(pnl),
+                'estimated_liquidation_equity_usdt': str(D(cash)+marked_value),
+                'unrealized_pnl_after_exit_fee_usdt': str(unrealized),
+                'total_pnl_after_exit_fee_usdt': str(pnl+unrealized),
+                'valuation_timestamp': latest*INTERVAL if latest is not None else None,
                 'commission_estimate_usdt': str(max(D(0), pnl) * D('0.10')),
-                'positions': [dict(r) for r in self.db.execute('SELECT * FROM positions')],
+                'positions': positions,
                 'recent_trades': trades, 'interval_seconds': INTERVAL,
                 'fee_assumption_per_side': str(FEE), 'spread_model': 'zero; not measured',
                 'last_decisions': [dict(r) for r in self.db.execute('SELECT * FROM events ORDER BY id DESC LIMIT 4')]}
