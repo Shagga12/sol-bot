@@ -150,8 +150,19 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(result['state'], 'ORDER_PENDING')
         self.assertEqual(self.j.position(), (D(0), D(0)))
         self.assertEqual(len(self.j.pending()), 1)
-        # Existing strategy keeps its 10% allocation cap: 50 available -> <=5.
-        self.assertLess(D(self.fake.writes[0]['qty']) * self.fake.ask, 5)
+        # Explicit live order ceiling replaces the demo's allocation percentage.
+        notional = D(self.fake.writes[0]['qty']) * self.fake.ask
+        self.assertLess(notional, 10)
+        self.assertGreater(notional, 9)
+
+    def test_explicit_fifteen_usdt_ceiling_is_not_cut_to_demo_size(self):
+        self.worker.c = config(capital_usdt='56', order_usdt='15')
+        result = self.worker.tick(NOW)
+        self.assertEqual(result['state'], 'ORDER_PENDING')
+        order = self.fake.writes[0]
+        notional = D(order['qty']) * D(order['price'])
+        self.assertLessEqual(notional, D('15'))
+        self.assertGreater(notional, D('14'))
 
     def test_unknown_submission_is_durable_and_never_retried(self):
         self.fake.fail_write = True

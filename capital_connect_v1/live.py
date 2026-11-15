@@ -402,7 +402,9 @@ class Worker:
         if decision.action != 'DEMO_BUY':
             self.journal.db.execute('INSERT INTO live_scans VALUES(?)', (bucket,))
             return {'state': 'WAIT', 'reason': decision.reason}
-        budget = min(number(self.c.order_usdt), decision.budget_usdt, free)
+        # Signal/risk checks remain shared with demo; sizing uses the owner's
+        # explicit live ceiling, not the demo's fixed 10-USDT/10% sizing rule.
+        budget = min(number(self.c.order_usdt), free)
         payload = self.payload('Buy', budget, rules, bid, ask, fee, now)
         return self.submit(payload, now, bucket)
 
@@ -445,12 +447,17 @@ def main(argv=None):
             if args.command == 'check':
                 rules, bid, ask, fee = worker.snapshot()
                 free = api.available('Buy')
-                planned = worker.payload('Buy', min(number(config.order_usdt), free,
-                    number(config.capital_usdt), free * D('.10'), D('10')), rules, bid, ask, fee, int(time.time()))
+                _, position_cost = journal.position()
+                budget = min(number(config.order_usdt), free,
+                    number(config.capital_usdt) + journal.pnl() - position_cost)
+                if budget <= 0:
+                    raise Halt('Allocated capital exhausted')
+                planned = worker.payload('Buy', budget, rules, bid, ask, fee, int(time.time()))
                 print(json.dumps({'environment': config.environment, 'symbol': config.symbol,
                     'connection_verified': True, 'available_spot_usdt': str(free),
                     'non_spot_permissions': getattr(api, 'non_spot_permissions', {}),
                     'execution_approved': False,
+                    'order_budget_ceiling_usdt': str(budget),
                     'buy_preview_qty': planned['qty'], 'pending_orders': len(journal.pending()),
                     'orders_submitted_by_this_command': 0, 'profitability_verified': False}))
                 return 0
