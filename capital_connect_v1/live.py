@@ -145,7 +145,7 @@ class Bybit:
         if info.get('readOnly') != 0 or 'SpotTrade' not in permissions.get('Spot', []):
             raise Halt('A spot-trading API key is required')
         if any(permissions.get(k) for k in permissions if k != 'Spot'):
-            raise Halt('Use a dedicated API key with only SpotTrade permission')
+            raise Halt('Non-spot permissions enabled: ' + json.dumps({k: v for k, v in permissions.items() if k != 'Spot' and v}, sort_keys=True))
         if not info.get('userID'):
             raise Halt('Account identity not returned')
         return str(info['userID'])
