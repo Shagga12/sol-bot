@@ -250,6 +250,17 @@ class LiveTests(unittest.TestCase):
 
 
 class TransportTests(unittest.TestCase):
+    def test_inspection_can_report_unified_permission_but_cannot_write(self):
+        result = {'readOnly':0,'userID':1,'permissions':{'Spot':['SpotTrade'],'Derivatives':['DerivativesTrade']}}
+        api, _ = self.api(result, inspection_only=True)
+        with patch('time.time', return_value=NOW):
+            self.assertEqual(api.identity(), '1')
+        self.assertEqual(api.non_spot_permissions, {'Derivatives':['DerivativesTrade']})
+        with self.assertRaises(Halt):
+            api.request('/v5/order/create', {}, write=True)
+        with self.assertRaises(Halt):
+            self.api(result, inspection_only=True, allow_orders=True)
+
     def test_empty_query_signing_has_no_get_body_and_trims_outer_whitespace(self):
         import hmac
         import hashlib

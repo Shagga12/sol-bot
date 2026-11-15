@@ -80,11 +80,15 @@ class Bybit:
              '/v5/order/realtime', '/v5/order/history', '/v5/execution/list'}
     PUBLIC = {'/v5/market/tickers', '/v5/market/kline', '/v5/market/instruments-info'}
 
-    def __init__(self, config, key, secret, allow_orders=False, opener=None):
+    def __init__(self, config, key, secret, allow_orders=False, opener=None, inspection_only=False):
         self.config = config
         self.key = key.strip() if isinstance(key, str) else key
         self.secret = secret.strip() if isinstance(secret, str) else secret
         self.allow_orders = allow_orders
+        if inspection_only and allow_orders:
+            raise Halt('Inspection transport cannot enable orders')
+        self.inspection_only = inspection_only
+        self.non_spot_permissions = {}
         self.base = {'testnet': 'https://api-testnet.bybit.com', 'mainnet': 'https://api.bybit.com'}[config.environment]
         self.opener = opener or build_opener(NoRedirect)
 
@@ -144,7 +148,10 @@ class Bybit:
         permissions = info.get('permissions', {})
         if info.get('readOnly') != 0 or 'SpotTrade' not in permissions.get('Spot', []):
             raise Halt('A spot-trading API key is required')
-        if any(permissions.get(k) for k in permissions if k != 'Spot'):
+        self.non_spot_permissions = {k:v for k,v in permissions.items() if k != 'Spot' and v}
+        # A read-only diagnostic may inspect funds without approving a key for
+        # execution. Normal/run transports retain the strict permission gate.
+        if self.non_spot_permissions and not self.inspection_only:
             raise Halt('Non-spot permissions enabled: ' + json.dumps({k: v for k, v in permissions.items() if k != 'Spot' and v}, sort_keys=True))
         if not info.get('userID'):
             raise Halt('Account identity not returned')
@@ -418,7 +425,7 @@ def main(argv=None):
                 (config.environment == 'mainnet' and not args.acknowledge_real_money)):
             raise Halt('Explicit activation flags are required; no orders submitted')
         api = Bybit(config, os.getenv('BYBIT_API_KEY'), os.getenv('BYBIT_API_SECRET'),
-                    allow_orders=args.command == 'run')
+                    allow_orders=args.command == 'run', inspection_only=args.command == 'check')
         # One owner on one Linux host/filesystem only. Do not run replicas.
         with open(args.db + '.lock', 'a') as lock:
             try:
@@ -442,6 +449,8 @@ def main(argv=None):
                     number(config.capital_usdt), free * D('.10'), D('10')), rules, bid, ask, fee, int(time.time()))
                 print(json.dumps({'environment': config.environment, 'symbol': config.symbol,
                     'connection_verified': True, 'available_spot_usdt': str(free),
+                    'non_spot_permissions': getattr(api, 'non_spot_permissions', {}),
+                    'execution_approved': False,
                     'buy_preview_qty': planned['qty'], 'pending_orders': len(journal.pending()),
                     'orders_submitted_by_this_command': 0, 'profitability_verified': False}))
                 return 0
