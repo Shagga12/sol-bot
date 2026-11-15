@@ -16,6 +16,10 @@ import signal
 import sqlite3
 import threading
 import time
+import sys
+if __name__ == '__main__':
+    # Keep one canonical class identity when protected execution imports us.
+    sys.modules.setdefault('capital_connect_v1.live', sys.modules[__name__])
 from urllib.parse import urlencode
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 from urllib.error import HTTPError
@@ -292,7 +296,10 @@ class Worker:
 
     def reconcile(self, now):
         for row in self.journal.pending():
-            params = {'category': 'spot', 'symbol': self.c.symbol, 'orderLinkId': row['link']}
+            stored = json.loads(row['payload'])
+            exchange_id = stored.get('exchangeOrderId')
+            params = {'category': 'spot', 'symbol': self.c.symbol,
+                      **({'orderId':exchange_id} if exchange_id else {'orderLinkId':row['link']})}
             rows = self.api.request('/v5/order/realtime', params).get('list', [])
             if not rows:
                 rows = self.api.request('/v5/order/history', params).get('list', [])
@@ -300,10 +307,10 @@ class Worker:
                 # An absent order after a timed-out POST is uncertain, never a reason to retry.
                 raise Halt('Pending order not found; inspect Bybit before any further submission')
             order = rows[0]
-            if (order.get('orderLinkId') != row['link'] or order.get('symbol') != self.c.symbol
+            if ((order.get('orderId') != exchange_id if exchange_id else order.get('orderLinkId') != row['link']) or order.get('symbol') != self.c.symbol
                     or order.get('side') != row['side'] or not order.get('orderId')):
                 raise Halt('Order identity mismatch')
-            if order.get('orderStatus') not in ('Filled', 'Cancelled', 'Rejected', 'PartiallyFilledCanceled'):
+            if order.get('orderStatus') not in ('Filled', 'Cancelled', 'Rejected', 'PartiallyFilledCanceled', 'Deactivated'):
                 return False
             if now - row['created'] >= 6 * 86400:
                 raise Halt('Pending order is too old for automatic reconciliation')
@@ -444,8 +451,13 @@ def main(argv=None):
             except BlockingIOError:
                 raise Halt('Another process owns this live database') from None
             uid = api.identity()
-            journal = Journal(args.db, config, uid)
-            worker = Worker(config, api, journal)
+            if args.command == 'run':
+                from .protected import ProtectedJournal, ProtectedWorker
+                journal = ProtectedJournal(args.db, config, uid)
+                worker = ProtectedWorker(config, api, journal)
+            else:
+                journal = Journal(args.db, config, uid)
+                worker = Worker(config, api, journal)
             if args.command == 'status':
                 qty, cost = journal.position()
                 print(json.dumps({'environment': config.environment, 'symbol': config.symbol,
