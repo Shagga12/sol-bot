@@ -65,7 +65,7 @@ The hosted database rollback test **passed on 15 November 2026**. The preparatio
 
 The real Supabase Auth service was reachable, email sign-in was enabled, email confirmation was required, and a deliberately invalid token was rejected through the actual transport. Successful email/password sign-in and visual browser review are still unverified; no user password was requested and no account was created.
 
-Provider-wide signup is still enabled on the existing Auth project. The preparation server itself refuses registration and financial writes. Before a broader rollout, disable **Allow new users to sign up** in the existing project’s Auth settings, keeping existing-user sign-in available. The connected API does not expose that configuration operation and browser access was unavailable, so this setting was not changed. See `VERIFICATION.md` for the live checks and exact configuration link.
+Provider-wide signup is now **disabled**, independently verified through the live Auth settings endpoint after the owner saved the setting. Email sign-in remains enabled and email confirmation remains required. The preparation server additionally refuses registration and financial writes. See `VERIFICATION.md` for the verified state and remaining launch requirements.
 
 ## Required before opening to traders
 

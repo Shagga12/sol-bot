@@ -9,13 +9,13 @@
 - Independent rollback confirmation: zero `cc_trader_%` tables, zero `cc_trader_private` schemas, one existing owner preserved, legacy signup trigger preserved, and zero active legacy simulation schedules.
 - Actual Auth settings endpoint reachable with a publishable key. Email sign-in enabled; email confirmation required.
 - Actual Auth `/user` call rejected a deliberately invalid token. No service-role key, existing user password, new account or email notification was used.
+- Owner disabled provider-wide new-user signup. Independently verified live Auth settings: `disable_signup=true`, email provider enabled, email confirmation required.
 
 ## Still outstanding
 
 - Successful real-user email/password sign-in through the private preparation application and a visual browser review. Browser access could not be established.
 - Persistent reviewed schema deployment to an appropriate staging environment; the successful test was rolled back and did not install the application schema.
 - Verification that the single protected owner corresponds to Ron’s intended Auth identity before rollout.
-- Provider-wide registration closure: existing Auth settings report signup enabled. The application’s `/api/register` is locked regardless. The API connection lacks Auth-configuration mutation and the browser was unavailable, so the global setting was not changed.
 - Custody provider selection/integration, per-trader issued destinations and verified funding/withdrawal reconciliation, tenant-bound real execution, and auditable commission collection.
 - FSC approval and an explicit reviewed launch. Neither approval alone nor browser edits can enable financial routes in this preparation build.
 
@@ -25,8 +25,8 @@ Open the existing Capital Connect project’s **Authentication → Sign In / Pro
 
 https://supabase.com/dashboard/project/mlybldtawwltavngqmul/auth/providers
 
-Turn **Allow new users to sign up** OFF and save. Supabase documents that existing users can still sign in when this setting is disabled:
+The owner turned **Allow new users to sign up** OFF and saved; this is now independently verified. Supabase documents that existing users can still sign in when this setting is disabled:
 
 https://supabase.com/docs/guides/auth/general-configuration
 
-Recheck the provider setting before claiming all registration is closed. Do not disable the project or existing email provider; the personal Bybit worker is separate and was not changed by this work.
+Recheck the provider setting before any future launch. Do not disable the project or existing email provider; the personal Bybit worker is separate and was not changed by this work.
