@@ -7,6 +7,7 @@ from capital_connect_v1.live import NoRedirect
 import signal
 import threading
 from capital_connect_v1.live import Config, main as check
+from capital_connect_v1.supervised_worker import supervise
 
 
 def prepare_config(raw, directory):
@@ -56,7 +57,10 @@ def run():
     result = check(['check', '--config', path, '--db', str(Path(directory)/'connection-journal.sqlite3')])
     print(json.dumps({'state': 'CHECK_PASSED' if result == 0 else 'CHECK_FAILED',
                       'orders_enabled': False, 'dashboard_control_connected': False}), flush=True)
-    heartbeat(stop, 'CHECK_PASSED' if result == 0 else 'CHECK_FAILED')
+    if result == 0:
+        supervise(stop, path, directory)
+    else:
+        heartbeat(stop, 'CHECK_FAILED')
 
 
 if __name__ == '__main__':

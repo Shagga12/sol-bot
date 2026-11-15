@@ -9,7 +9,7 @@ class ConnectionWorkerTests(unittest.TestCase):
             check.assert_not_called()
     def test_checks_without_activation_flags(self):
         env = {'CAPITAL_LIVE_CONFIG_JSON':'{}','BYBIT_API_KEY':'fake','BYBIT_API_SECRET':'fake'}
-        with patch.dict('os.environ',env,clear=True), patch('capital_connect_v1.connection_worker.prepare_config', return_value='/var/data/config.json'), patch('capital_connect_v1.connection_worker.check',return_value=0) as check, patch('capital_connect_v1.connection_worker.threading.Event'), patch('capital_connect_v1.connection_worker.signal.signal'):
+        with patch.dict('os.environ',env,clear=True), patch('capital_connect_v1.connection_worker.prepare_config', return_value='/var/data/config.json'), patch('capital_connect_v1.connection_worker.check',return_value=0) as check, patch('capital_connect_v1.connection_worker.supervise'), patch('capital_connect_v1.connection_worker.threading.Event'), patch('capital_connect_v1.connection_worker.signal.signal'):
             run()
             args=check.call_args.args[0]
             self.assertEqual(args[0],'check')
