@@ -14,6 +14,7 @@ from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 REPORT = None
+LIVE_REPORT = None
 CHECK_LOCK = threading.Lock()
 LAST_CHECK = 0
 LOCK = threading.Lock()
@@ -25,12 +26,19 @@ VERSION = 'owner-setup-v2'
 
 
 def live_readiness():
-    # This deployment has no execution worker or verified control channel.
-    # Never infer activation readiness from a successful wallet GET.
-    return {'state': 'NOT_CONNECTED', 'real_trading_active': False,
-            'can_activate': False, 'execution_connected': False,
-            'blockers': ['The live execution worker is not connected to this dashboard.',
-                         'Exchange order, exit and restart validation is incomplete.']}
+    with LOCK:
+        report = LIVE_REPORT
+    fresh = bool(report and time.time()-report['received_at'] < 180)
+    state = report['state'] if fresh else 'NOT_CONNECTED'
+    messages = {
+        'SETUP_REQUIRED': 'Connection worker is online. Its secure credentials and trading configuration are not configured.',
+        'CHECK_PASSED': 'Read-only worker checks passed. Exchange order and exit validation is still incomplete.',
+        'CHECK_FAILED': 'The worker connection check failed. Review its Render logs.',
+        'NOT_CONNECTED': 'No recent connection-worker heartbeat has arrived.'}
+    return {'state': state, 'real_trading_active': False, 'can_activate': False,
+            'execution_connected': False, 'connection_monitor_connected': fresh,
+            'blockers': [messages[state], 'This worker cannot activate orders from the dashboard.']}
+
 
 
 def validate_live_setup(data):
@@ -183,7 +191,20 @@ class Handler(BaseHTTPRequestHandler):
         if self.path=='/api/live/status':return self.send(json.dumps(live_readiness()))
         self.send('{}',404)
     def do_POST(self):
-        global REPORT, LAST_CHECK
+        global REPORT, LAST_CHECK, LIVE_REPORT
+        if self.path == '/api/live/report':
+            token = os.getenv('CAPITAL_LIVE_REPORT_TOKEN', '')
+            if not token or not hmac.compare_digest(self.headers.get('Authorization',''), 'Bearer '+token):
+                return self.send('{}',403)
+            try:
+                size = int(self.headers.get('Content-Length','0'))
+                if not 0 < size <= 1000: return self.send('{}',413)
+                report = json.loads(self.rfile.read(size))
+                if not isinstance(report,dict) or set(report) != {'state','orders_enabled'} or report['orders_enabled'] is not False or report['state'] not in ('SETUP_REQUIRED','CHECK_PASSED','CHECK_FAILED'):
+                    raise ValueError()
+                with LOCK: LIVE_REPORT = {'received_at':time.time(), 'state':report['state']}
+                return self.send('{"accepted":true}')
+            except (ValueError,TypeError): return self.send('{}',400)
         if self.path in ('/api/live/validate', '/api/live/activate'):
             if not self.viewer():return self.send('{"error":"Sign in before changing setup."}',401)
             if self.headers.get('Origin')!=os.getenv('CAPITAL_PUBLIC_ORIGIN','https://capital-connect-preflight.onrender.com'):return self.send('{"error":"Request origin not allowed."}',403)

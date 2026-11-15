@@ -224,7 +224,7 @@ if (typeof document !== 'undefined') {
       const status = await requestJSON('/api/live/status');
       // This release deliberately supports preparation only. A browser or
       // modified response can never unlock an unimplemented execution channel.
-      text('live-state', status.execution_connected ? 'Backend needs review' : 'Live engine not connected');
+      text('live-state', status.connection_monitor_connected ? 'Connection worker online — orders off' : 'Connection worker not reporting');
       const blockers = Array.isArray(status.blockers) ? status.blockers : ['Execution readiness could not be established.'];
       el('live-blockers').replaceChildren(...blockers.map(value => { const li=document.createElement('li'); li.textContent=String(value); return li; }));
     } catch (error) {

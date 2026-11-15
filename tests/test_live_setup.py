@@ -72,3 +72,20 @@ class SetupHTTPTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+
+class HeartbeatTests(SetupHTTPTests):
+    def test_worker_report_is_authenticated_and_cannot_enable_orders(self):
+        app.LIVE_REPORT = None
+        with patch.dict('os.environ', {'CAPITAL_LIVE_REPORT_TOKEN':'test-live-token'}):
+            report = json.dumps({'state':'SETUP_REQUIRED','orders_enabled':False})
+            self.assertEqual(self.request('/api/live/report','POST',report)[0],403)
+            headers = {'Authorization':'Bearer test-live-token'}
+            self.assertEqual(self.request('/api/live/report','POST',report,headers=headers)[0],200)
+            state = app.live_readiness()
+            self.assertTrue(state['connection_monitor_connected'])
+            self.assertFalse(state['can_activate'])
+            bad = json.dumps({'state':'CHECK_PASSED','orders_enabled':True})
+            self.assertEqual(self.request('/api/live/report','POST',bad,headers=headers)[0],400)
+            with patch.object(app.time,'time',return_value=app.LIVE_REPORT['received_at']+181):
+                self.assertFalse(app.live_readiness()['connection_monitor_connected'])
+        app.LIVE_REPORT = None
