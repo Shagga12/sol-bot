@@ -287,7 +287,10 @@ class Journal:
             self.db.execute('UPDATE live_position SET qty=?,cost=? WHERE id=1', (str(owned), str(cost)))
             self.db.execute('UPDATE live_orders SET terminal=1,result=?,pnl=?,settled=? WHERE link=?',
                 (json.dumps({'orderId': order['orderId'], 'status': order['orderStatus'],
-                             'executed_qty': str(qty), 'executed_value': str(value)}), str(pnl), now, row['link']))
+                             'executed_qty': str(qty), 'executed_value': str(value),
+                             'stop_order_type': order.get('stopOrderType') or None,
+                             'trigger_by': order.get('triggerBy') or None,
+                             'order_type': order.get('orderType') or None}), str(pnl), now, row['link']))
 
 
 class Worker:
