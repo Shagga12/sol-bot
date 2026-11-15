@@ -24,3 +24,18 @@ test('CSV quotes text and neutralizes spreadsheet formulas',()=>{
   const csv=tradesCSV([{ts:0,symbol:'BTCUSDT',action:'DEMO_BUY',reason:'signal',price:'1',pnl:'0'}]);
   assert.ok(csv.includes('1970-01-01T00:00:00.000Z'));assert.ok(csv.endsWith(',""'));
 });
+
+
+const {setupAccountNote} = require('../dashboard/dashboard.js');
+test('mainnet checks cannot verify testnet or a mismatched pair', () => {
+  const result={verified:true,checked_at:1000,symbol:'ETHUSDT',dedicated_spot_key:true};
+  assert.match(setupAccountNote({environment:'testnet',symbol:'ETHUSDT'},result,1001),/mainnet only/);
+  assert.match(setupAccountNote({environment:'mainnet',symbol:'BTCUSDT'},result,1001),/different pair/);
+});
+test('stale and read-only keys cannot claim trading readiness', () => {
+  const config={environment:'mainnet',symbol:'BTCUSDT'};
+  const result={verified:true,checked_at:1000,symbol:'BTCUSDT',dedicated_spot_key:false};
+  assert.match(setupAccountNote(config,result,1001),/read-only key/);
+  assert.match(setupAccountNote(config,result,1400),/older than five minutes/);
+  assert.match(setupAccountNote(config,{...result,dedicated_spot_key:true},1001),/validation are still required/);
+});

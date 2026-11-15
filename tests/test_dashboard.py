@@ -46,7 +46,7 @@ class DashboardHTTPTests(unittest.TestCase):
     def test_health_exposes_release_and_disabled_orders_only(self):
         status,headers,body=self.request('/health',auth=False)
         self.assertEqual(status,200)
-        self.assertEqual(json.loads(body),{'status':'ok','live_orders':False,'dashboard_version':'mobile-desk-v1'})
+        self.assertEqual(json.loads(body),{'status':'ok','live_orders':False,'dashboard_version':'owner-setup-v2'})
         self.assertNotIn(b'local-test-password',body)
 
     def test_page_and_assets_serve_with_security_headers(self):
@@ -131,3 +131,4 @@ class BybitCheckTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+

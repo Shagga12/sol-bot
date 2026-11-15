@@ -41,11 +41,22 @@ function tradesCSV(trades) {
     t.symbol, t.action, t.reason, t.price, t.action === 'DEMO_SELL' ? t.pnl : '']);
   return [columns, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n');
 }
+function setupAccountNote(config, result, now = Date.now() / 1000) {
+  if (!config) return 'Validate your settings to compare them with the account check.';
+  if (config.environment !== 'mainnet') return 'Testnet selected. The Bybit account tab checks mainnet only; it cannot verify this testnet account.';
+  if (!result?.verified || !Number.isFinite(result.checked_at) || now - result.checked_at > 300 || result.checked_at > now + 60) return 'Mainnet account check missing or older than five minutes. Check your Bybit account again.';
+  if (result.symbol !== config.symbol) return 'Account check is for a different pair. Recheck the selected pair.';
+  if (!result.dedicated_spot_key) return 'A dedicated SpotTrade-only API key has not been verified. A read-only key cannot place orders.';
+  return 'Recent mainnet account check reports a dedicated spot-trading key. Execution and exit validation are still required.';
+}
 if (typeof module !== 'undefined') module.exports = {numeric, money, pairName, reasonName, reportAge, filterTrades, csvCell, tradesCSV};
+if (typeof module !== 'undefined') module.exports.setupAccountNote = setupAccountNote;
 
 if (typeof document !== 'undefined') {
   const el = id => document.getElementById(id);
   let reportData = null, currentTrades = [], isLoading = false, connectionBusy = false;
+  let liveConfig = null, accountCheck = null, draftRevision = 0;
+  const draftKey = 'capital-connect-owner-setup-v1';
   const viewNames = {overview: ['Your trading desk.', 'A clear view of your bot, your activity and your next step.', 'Overview'],
     activity: ['Every trade, in view.', 'Review your demo activity and see how the results add up.', 'Activity'],
     account: ['Your Bybit account.', 'Verify your connection and funds without placing an order.', 'Bybit account'],
@@ -193,6 +204,72 @@ if (typeof document !== 'undefined') {
       throw error;
     } finally { clearTimeout(timer); }
   }
+  function draftValues() { return Object.fromEntries(new FormData(el('live-setup-form'))); }
+  function updateLiveAccount() {
+    text('live-account-note', setupAccountNote(liveConfig, accountCheck));
+    text('live-funding-note', 'Configuration download does not deploy or activate the bot.');
+    if (!liveConfig || liveConfig.environment !== 'mainnet' || accountCheck?.symbol !== liveConfig.symbol || !accountCheck?.verified || Date.now()/1000-accountCheck.checked_at>300) return;
+    const free = numeric(accountCheck.available_spot_usdt), minimum = numeric(accountCheck.minimum_order_usdt);
+    if (free === null || minimum === null) { text('live-funding-note','Available non-borrowed funds or pair minimum are unverified.'); return; }
+    const ceiling = Math.min(Number(liveConfig.order_usdt), Number(liveConfig.capital_usdt), free * .1, 10);
+    text('live-funding-note', 'Current mainnet funds: ' + money(free) + ' USDT. Entry ceiling before fees and rounding: ' + money(ceiling) + ' USDT; pair minimum: ' + money(minimum) + ' USDT. ' + (ceiling <= minimum ? 'Sizing may fail after fees and rounding.' : 'A worker-side size check is still required.'));
+  }
+  function invalidateDraft() {
+    draftRevision++; liveConfig = null; el('download-live').disabled = true;
+    text('live-draft-status','Settings changed. Validate again before downloading. The running bot has not changed.');
+    updateLiveAccount();
+  }
+  async function loadLiveStatus() {
+    try {
+      const status = await requestJSON('/api/live/status');
+      // This release deliberately supports preparation only. A browser or
+      // modified response can never unlock an unimplemented execution channel.
+      text('live-state', status.execution_connected ? 'Backend needs review' : 'Live engine not connected');
+      const blockers = Array.isArray(status.blockers) ? status.blockers : ['Execution readiness could not be established.'];
+      el('live-blockers').replaceChildren(...blockers.map(value => { const li=document.createElement('li'); li.textContent=String(value); return li; }));
+    } catch (error) {
+      text('live-state','Backend check failed');
+      const li=document.createElement('li'); li.textContent=error.message; el('live-blockers').replaceChildren(li);
+    }
+    el('activate-live').disabled = true;
+  }
+  el('live-setup-form').addEventListener('input', invalidateDraft);
+  el('live-setup-form').addEventListener('change', invalidateDraft);
+  el('live-setup-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const values=draftValues(), revision=draftRevision;
+    el('validate-live').disabled=true; liveConfig=null; el('download-live').disabled=true;
+    text('live-draft-status','Validating limits…');
+    try {
+      const result=await requestJSON('/api/live/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values)});
+      if (revision !== draftRevision) return;
+      if (!result.valid || !result.config || result.settings_applied_to_bot !== false) throw Error('Setup response could not be verified.');
+      liveConfig=result.config; el('download-live').disabled=false;
+      try { localStorage.setItem(draftKey,JSON.stringify(values)); text('live-draft-status','Draft validated and saved in this browser only. No settings applied to the bot; no orders submitted.'); }
+      catch { text('live-draft-status','Draft validated for download. Browser storage is unavailable; no settings applied to the bot.'); }
+      updateLiveAccount();
+    } catch (error) { if (revision===draftRevision) text('live-draft-status',error.message); }
+    finally { el('validate-live').disabled=false; }
+  });
+  el('clear-live').addEventListener('click',() => {
+    el('live-setup-form').reset(); invalidateDraft();
+    try { localStorage.removeItem(draftKey); } catch {}
+    text('live-draft-status','Draft cleared. No settings applied to the bot.');
+  });
+  el('download-live').addEventListener('click',() => {
+    if (!liveConfig) return;
+    const url=URL.createObjectURL(new Blob([JSON.stringify(liveConfig,null,2)+'\n'],{type:'application/json'}));
+    const a=document.createElement('a'); a.href=url; a.download='capital-connect-'+liveConfig.environment+'-config.json';
+    document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+  });
+  try {
+    const saved=JSON.parse(localStorage.getItem(draftKey));
+    if (saved && typeof saved==='object') {
+      const form=el('live-setup-form');
+      for (const [key,value] of Object.entries(saved)) if (form.elements.namedItem(key) && typeof value==='string') form.elements.namedItem(key).value=value;
+      text('live-draft-status','Saved browser draft restored. Validate it again before downloading. It has not been applied to the bot.');
+    }
+  } catch {}
   async function load() {
     if (isLoading) return;
     isLoading = true; el('refresh').disabled = true;
@@ -201,6 +278,7 @@ if (typeof document !== 'undefined') {
     finally { isLoading = false; el('refresh').disabled = false; }
   }
   function clearAccount() {
+    accountCheck=null; updateLiveAccount();
     ['wallet-balance','locked-balance','available-balance','minimum-order'].forEach(id => amount(id, null));
     text('key-access','—'); text('account-status','Not verified'); text('checked-at','Complete a check to see your account information.');
     badge('ready-account','Not checked'); badge('ready-funds','Not checked'); text('ready-funds-note','Check non-borrowed funds and the current pair minimum.');
@@ -215,6 +293,7 @@ if (typeof document !== 'undefined') {
     try {
       const result = await requestJSON('/api/bybit/check',{method:'POST',headers:{'Content-Type':'application/json'},body},55000);
       if (!result.verified) throw Error(result.error || 'Connection was not verified.');
+      accountCheck=result; updateLiveAccount();
       text('account-status','Connection verified'); text('checked-at','Checked ' + new Date(result.checked_at*1000).toLocaleString());
       amount('wallet-balance',result.wallet_usdt); amount('locked-balance',result.locked_usdt); amount('available-balance',result.available_spot_usdt); amount('minimum-order',result.minimum_order_usdt);
       text('key-access',result.key_access || 'Unknown'); badge('ready-account','Verified','green');
@@ -238,6 +317,7 @@ if (typeof document !== 'undefined') {
     document.body.append(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url),1000);
   });
   window.addEventListener('hashchange',showView);
-  showView(); renderReport({report:null}); load();
-  setInterval(() => { updateFreshness(); if (el('auto-update').checked) load(); },60000);
+  showView(); renderReport({report:null}); load(); loadLiveStatus();
+  setInterval(() => { updateFreshness(); updateLiveAccount(); if (el('auto-update').checked) load(); },60000);
 }
+

@@ -63,3 +63,28 @@ Browser QA uses disposable, local-only fixtures (never deployed). Desktop and
 390-pixel phone layouts, navigation, filter empty states, credential clearing and
 the account success flow were inspected. This does not constitute an authenticated
 check of the owner's actual Bybit account or permission to submit an order.
+
+
+## Owner setup panel (owner-setup-v2)
+
+Trading setup now accepts an owner-selected environment, one spot pair, total
+allocation, order ceiling, daily realized loss limit, stop/profit percentages and
+slippage. Numeric limits start blank. The authenticated same-origin validation
+endpoint verifies the execution candidate's schema and exports a credential-free
+JSON config with percentages converted to fractions. A validated draft can be
+stored in the current browser; restore requires revalidation. Editing invalidates
+the download, including edits while validation is in flight. Clearing removes the
+browser draft. No draft is applied to either worker or stored on the web server.
+
+GET /api/live/status reports the actual absent execution connection. The activation
+control remains disabled; even a direct authenticated POST /api/live/activate returns
+409. No environment variable can unlock an absent backend. Authenticated account
+checks expose dedicated SpotTrade-only permission as separate from wallet access.
+Account comparisons expire after five minutes and require matching mainnet/pair;
+mainnet wallet checks cannot validate testnet. Funding comparison includes the
+candidate's 10-USDT and 10%-of-free-funds entry caps, but does not claim a precise
+post-fee/rounding order preview. Keys are still transient and cleared from inputs.
+
+This is dashboard preparation, not a deployed live execution integration. The
+separate engine, exchange validation, durable control channel and owner activation
+remain outstanding. Stops in that engine depend on worker uptime.

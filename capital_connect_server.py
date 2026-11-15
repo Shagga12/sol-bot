@@ -21,7 +21,50 @@ from pathlib import Path
 
 DASHBOARD = Path(__file__).resolve().parent / 'dashboard'
 SYMBOLS = ('BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT')
-VERSION = 'mobile-desk-v1'
+VERSION = 'owner-setup-v2'
+
+
+def live_readiness():
+    # This deployment has no execution worker or verified control channel.
+    # Never infer activation readiness from a successful wallet GET.
+    return {'state': 'NOT_CONNECTED', 'real_trading_active': False,
+            'can_activate': False, 'execution_connected': False,
+            'blockers': ['The live execution worker is not connected to this dashboard.',
+                         'Exchange order, exit and restart validation is incomplete.']}
+
+
+def validate_live_setup(data):
+    fields = {'environment', 'symbol', 'capital_usdt', 'order_usdt',
+              'daily_loss_usdt', 'stop_loss_percent', 'take_profit_percent', 'slippage_percent'}
+    if not isinstance(data, dict) or set(data) != fields:
+        raise ValueError('Complete the setup fields. Do not include API credentials.')
+    if data['environment'] not in ('testnet', 'mainnet') or data['symbol'] not in SYMBOLS:
+        raise ValueError('Choose testnet or mainnet and one supported spot pair.')
+    values = {}
+    for key in fields - {'environment', 'symbol'}:
+        raw = data[key]
+        if not isinstance(raw, str) or len(raw) > 24 or not re.fullmatch(r'(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)', raw):
+            raise ValueError('Enter positive decimal numbers for every limit.')
+        value = Decimal(raw)
+        if not value.is_finite() or value <= 0:
+            raise ValueError('Every trading limit must be greater than zero.')
+        values[key] = value
+    if values['order_usdt'] > values['capital_usdt']:
+        raise ValueError('Order ceiling cannot exceed total allocation.')
+    if values['daily_loss_usdt'] > values['capital_usdt']:
+        raise ValueError('Daily loss limit cannot exceed total allocation.')
+    if any(values[key] >= 100 for key in ('stop_loss_percent', 'take_profit_percent')):
+        raise ValueError('Stop-loss and profit target must be below 100%.')
+    slip = values['slippage_percent']
+    if not Decimal('.01') <= slip <= 10 or slip % Decimal('.01'):
+        raise ValueError('Slippage must be 0.01–10%, with at most two decimal places.')
+    config = {'environment': data['environment'], 'symbol': data['symbol']}
+    for key in ('capital_usdt', 'order_usdt', 'daily_loss_usdt', 'slippage_percent'):
+        config[key] = format(values[key], 'f')
+    config['stop_loss_fraction'] = format(values['stop_loss_percent'] / 100, 'f')
+    config['take_profit_fraction'] = format(values['take_profit_percent'] / 100, 'f')
+    return {'valid': True, 'config': config, 'readiness': live_readiness(),
+            'settings_applied_to_bot': False, 'orders_submitted': 0}
 
 
 class ConnectionCheckError(Exception):
@@ -94,6 +137,8 @@ def check_bybit(input):
         'key_access':{0:'Read/write',1:'Read-only'}.get(info.get('readOnly'),'Unknown'),
         'wallet_usdt':coin.get('walletBalance'), 'locked_usdt':coin.get('locked'),
         'note':'Wallet balance is not a verified spendable amount. Check Available in Bybit before placing your trade.',
+        'spot_trade_permission': info.get('readOnly') == 0 and 'SpotTrade' in info.get('permissions', {}).get('Spot', []),
+        'dedicated_spot_key': info.get('readOnly') == 0 and info.get('permissions', {}).get('Spot') == ['SpotTrade'] and not any(v for k,v in info.get('permissions', {}).items() if k != 'Spot'),
         'automatic_real_orders':False,'credentials_saved':False,**funding}
 
 def validate_report(report):
@@ -135,9 +180,23 @@ class Handler(BaseHTTPRequestHandler):
         if self.path=='/api/status':
             with LOCK:data=json.dumps(REPORT or {'report':None})
             return self.send(data)
+        if self.path=='/api/live/status':return self.send(json.dumps(live_readiness()))
         self.send('{}',404)
     def do_POST(self):
         global REPORT, LAST_CHECK
+        if self.path in ('/api/live/validate', '/api/live/activate'):
+            if not self.viewer():return self.send('{"error":"Sign in before changing setup."}',401)
+            if self.headers.get('Origin')!=os.getenv('CAPITAL_PUBLIC_ORIGIN','https://capital-connect-preflight.onrender.com'):return self.send('{"error":"Request origin not allowed."}',403)
+            if self.headers.get('Content-Type','').split(';')[0]!='application/json':return self.send('{}',415)
+            if self.path=='/api/live/activate':
+                return self.send(json.dumps({'error':'Live activation is unavailable until an execution worker is connected and validated.', **live_readiness()}),409)
+            try:
+                size=int(self.headers.get('Content-Length','0'))
+                if not 0<size<=4000:return self.send('{}',413)
+                result=validate_live_setup(json.loads(self.rfile.read(size)))
+                return self.send(json.dumps(result))
+            except (ValueError, TypeError, InvalidOperation):
+                return self.send('{"error":"Invalid setup. Use positive decimal limits; order and daily loss limits cannot exceed allocation. Targets must be below 100%; slippage must be 0.01–10% with at most two decimals."}',400)
         if self.path=='/api/bybit/check':
             if not self.viewer():return self.send('{"error":"Sign in again before checking Bybit."}',401)
             if self.headers.get('Origin')!=os.getenv('CAPITAL_PUBLIC_ORIGIN','https://capital-connect-preflight.onrender.com'):return self.send('{"error":"Request origin not allowed."}',403)
@@ -164,3 +223,4 @@ class Handler(BaseHTTPRequestHandler):
             return self.send('{"accepted":true}')
         except (ValueError,TypeError):return self.send('{}',400)
 if __name__=='__main__':ThreadingHTTPServer(('0.0.0.0',int(os.getenv('PORT','10000'))),Handler).serve_forever()
+
