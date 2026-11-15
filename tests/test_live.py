@@ -250,6 +250,28 @@ class LiveTests(unittest.TestCase):
 
 
 class TransportTests(unittest.TestCase):
+    def test_empty_query_signing_has_no_get_body_and_trims_outer_whitespace(self):
+        import hmac
+        import hashlib
+        api, opener = self.api()
+        api = Bybit(config(), ' fake-key\n', ' fake-secret\n', opener=opener)
+        with patch('time.time', return_value=NOW):
+            api.request('/v5/user/query-api')
+        req = opener.requests[0]
+        expected = hmac.new(b'fake-secret', (str(NOW*1000)+'fake-key5000').encode(), hashlib.sha256).hexdigest()
+        self.assertEqual(req.get_header('X-bapi-sign'), expected)
+        self.assertEqual(req.get_header('X-bapi-api-key'), 'fake-key')
+        self.assertIsNone(req.data)
+        self.assertNotIn('?', req.full_url)
+
+    def test_invalid_credential_formats_fail_without_network_or_secret_output(self):
+        for key, secret, expected in [('same','same','identical'), ('fake-key','-----BEGIN PRIVATE KEY-----','RSA'), ('fake-key','fake secret','whitespace')]:
+            api, opener = self.api()
+            api = Bybit(config(), key, secret, opener=opener)
+            with self.assertRaisesRegex(Halt, expected):
+                api.request('/v5/user/query-api')
+            self.assertEqual(opener.requests, [])
+
     def api(self, result=None, **kwargs):
         class Opener:
             def __init__(self):

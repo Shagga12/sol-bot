@@ -18,6 +18,7 @@ import threading
 import time
 from urllib.parse import urlencode
 from urllib.request import Request, HTTPRedirectHandler, build_opener
+from urllib.error import HTTPError
 
 from .engine import SYMBOLS
 from .strategy import evaluate
@@ -80,7 +81,9 @@ class Bybit:
     PUBLIC = {'/v5/market/tickers', '/v5/market/kline', '/v5/market/instruments-info'}
 
     def __init__(self, config, key, secret, allow_orders=False, opener=None):
-        self.config, self.key, self.secret = config, key, secret
+        self.config = config
+        self.key = key.strip() if isinstance(key, str) else key
+        self.secret = secret.strip() if isinstance(secret, str) else secret
         self.allow_orders = allow_orders
         self.base = {'testnet': 'https://api-testnet.bybit.com', 'mainnet': 'https://api.bybit.com'}[config.environment]
         self.opener = opener or build_opener(NoRedirect)
@@ -105,6 +108,12 @@ class Bybit:
         if write or path in self.READS:
             if not self.key or not self.secret:
                 raise Halt('Credentials are not configured')
+            if self.key == self.secret:
+                raise Halt('API key and secret are identical; check the saved credential fields')
+            if self.secret.startswith('-----BEGIN'):
+                raise Halt('RSA private key detected; this worker currently supports system-generated HMAC keys only')
+            if any(c.isspace() for c in self.key + self.secret):
+                raise Halt('Internal whitespace detected in credentials; check saved formatting')
             timestamp = str(int(time.time() * 1000))
             signature = hmac.new(self.secret.encode(),
                 (timestamp + self.key + '5000' + payload).encode(), hashlib.sha256).hexdigest()
@@ -116,6 +125,8 @@ class Bybit:
         try:
             with self.opener.open(request, timeout=10) as response:
                 data = json.load(response)
+        except HTTPError as error:
+            raise Halt('Exchange HTTP rejection; status=' + str(error.code)) from None
         except Exception:
             # Do not print signed requests, secrets or raw exchange response bodies.
             raise Halt('Exchange request failed; reconcile any pending order before continuing') from None
