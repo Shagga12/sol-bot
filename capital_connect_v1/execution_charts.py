@@ -5,6 +5,18 @@ from pathlib import Path
 from decimal import Decimal
 from dataclasses import asdict
 
+def verified_exit_reason(result, side):
+    """Only label exits when Bybit's reconciled order explicitly identifies them."""
+    if side != 'Sell':
+        return None
+    kind = result.get('stop_order_type')
+    if kind in ('StopLoss', 'PartialStopLoss', 'tpslOrder'):
+        return 'Stop-loss' if kind != 'tpslOrder' else 'TP/SL (trigger unspecified)'
+    if kind in ('TakeProfit', 'PartialTakeProfit'):
+        return 'Take-profit'
+    return 'Unverified exit'
+
+
 def chart_snapshot(directory, config):
     path=Path(directory)/'execution-journal.sqlite3'
     if not path.exists():return None
@@ -20,7 +32,8 @@ def chart_snapshot(directory, config):
             result=json.loads(row['result']);qty=Decimal(result['executed_qty']);value=Decimal(result['executed_value'])
             pnl+=Decimal(row['pnl'])
             if qty>0:
-                fills.append({'ts':row['settled'],'side':row['side'],'price':str(value/qty),'qty':str(qty),'pnl':str(pnl)})
+                fills.append({'ts':row['settled'],'side':row['side'],'price':str(value/qty),'qty':str(qty),'pnl':str(pnl),
+                              'exit_reason':verified_exit_reason(result,row['side'])})
         position=db.execute('SELECT qty,cost FROM live_position WHERE id=1').fetchone()
         qty=Decimal(position['qty']);levels=[]
         for row in db.execute("SELECT data FROM live_protection WHERE state='ACTIVE'"):
