@@ -11,5 +11,5 @@ test('real journal renders markers, target levels and cumulative P&L without dem
 });
 test('testnet journal and stale prices cannot appear as real money charts',()=>{
  const {context,el}=setup();vm.runInContext(`chartMarket={fetched_at:0,points:[{ts:1,price:'999'}]};chartStatus={control_connected:true,environment:'testnet',execution:{realized_pnl_usdt:'999'},chart:{fills:[],levels:[],total_fills:0}};renderLiveCharts()`,context);
- assert.equal(el('chart-last-price').textContent,'—');assert.match(el('chart-execution-note').textContent,/excluded/);assert.match(el('pnl-chart').children[0].textContent,/No verified/);
+ assert.equal(el('chart-last-price').textContent,'—');assert.match(el('chart-execution-note').textContent,/mainnet/);assert.match(el('pnl-chart').children[0].textContent,/No verified/);
 });

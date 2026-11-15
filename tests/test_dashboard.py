@@ -46,7 +46,7 @@ class DashboardHTTPTests(unittest.TestCase):
     def test_health_exposes_release_and_disabled_orders_only(self):
         status,headers,body=self.request('/health',auth=False)
         self.assertEqual(status,200)
-        self.assertEqual(json.loads(body),{'status':'ok','live_orders':False,'dashboard_version':'owner-control-v5-charts'})
+        self.assertEqual(json.loads(body),{'status':'ok','live_orders':False,'dashboard_version':'owner-control-v6-real-only'})
         self.assertNotIn(b'local-test-password',body)
 
     def test_page_and_assets_serve_with_security_headers(self):
@@ -62,24 +62,23 @@ class DashboardHTTPTests(unittest.TestCase):
 
     def test_missing_report_is_explicit_instead_of_fake_balances(self):
         _,_,body=self.request('/api/status')
-        self.assertEqual(json.loads(body),{'report':None})
+        self.assertIn('retired',json.loads(body)['error'])
 
-    def test_authenticated_worker_report_reaches_dashboard(self):
+    def test_retired_simulation_report_cannot_reach_dashboard(self):
         report={'mode':'DEMO','live_order_execution':False,'positions':[], 'recent_trades':[],'cash_usdt':'998.39'}
         status,_,_=self.request('/api/report','POST',json.dumps(report),headers={'Authorization':'Bearer local-report-token'})
-        self.assertEqual(status,200)
-        _,_,body=self.request('/api/status')
-        self.assertEqual(json.loads(body)['report'],report)
+        self.assertEqual(status,410)
+        self.assertIsNone(app.REPORT)
 
     def test_real_mode_and_malformed_reports_are_rejected(self):
         for report in [[],{}, {'mode':'LIVE','live_order_execution':True,'positions':[],'recent_trades':[]},
                        {'mode':'DEMO','live_order_execution':False,'positions':[1],'recent_trades':[]}]:
             status,_,_=self.request('/api/report','POST',json.dumps(report),headers={'Authorization':'Bearer local-report-token'})
-            self.assertEqual(status,400)
+            self.assertEqual(status,410)
             self.assertIsNone(app.REPORT)
 
     def test_report_cannot_be_written_with_viewer_credentials(self):
-        self.assertEqual(self.request('/api/report','POST','{}')[0],403)
+        self.assertEqual(self.request('/api/report','POST','{}')[0],410)
 
     def test_connection_check_rejects_cross_origin_before_using_credentials(self):
         with patch.object(app,'check_bybit') as check:
@@ -141,3 +140,12 @@ class SpotPermissionTests(unittest.TestCase):
     def test_transfers_contracts_and_readonly_are_rejected(self):
         for info in ({"readOnly":1,"permissions":{"Spot":["SpotTrade"]}}, {"readOnly":0,"permissions":{"Spot":["SpotTrade"],"Wallet":["AccountTransfer"]}}, {"readOnly":0,"permissions":{"Spot":["SpotTrade"],"ContractTrade":["Order"]}}):
             self.assertFalse(app.compatible_spot_access(info))
+
+
+class RealOnlyPageTests(unittest.TestCase):
+    def test_owner_page_has_real_history_without_simulated_cards(self):
+        html=(app.DASHBOARD/'index.html').read_bytes()
+        self.assertNotIn(b'demo',html.lower())
+        self.assertIn(b'Real-money trade history',html)
+        self.assertIn(b'id="live-quantity"',html)
+        self.assertNotIn(b'id="market-cards"',html)

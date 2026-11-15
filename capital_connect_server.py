@@ -1,4 +1,4 @@
-"""Private Capital Connect demo monitor. No exchange order endpoints."""
+"""Private personal execution dashboard. Exchange writes are handled by the separate worker."""
 import base64
 import hmac
 import hashlib
@@ -13,7 +13,6 @@ import time
 from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-REPORT = None
 LIVE_REPORT = None
 CHECK_LOCK = threading.Lock()
 LAST_CHECK = 0
@@ -22,7 +21,7 @@ from pathlib import Path
 
 DASHBOARD = Path(__file__).resolve().parent / 'dashboard'
 SYMBOLS = ('BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT')
-VERSION = 'owner-control-v5-charts'
+VERSION = 'owner-control-v6-real-only'
 from activation_control import ActivationControl
 CONTROL = ActivationControl()
 
@@ -162,19 +161,6 @@ def check_bybit(input):
         'dedicated_spot_key': compatible_spot_access(info),
         'automatic_real_orders':False,'credentials_saved':False,**funding}
 
-def validate_report(report):
-    if not isinstance(report,dict) or report.get('mode')!='DEMO' or report.get('live_order_execution') is not False:
-        raise ValueError('Only demo worker reports are accepted')
-    for field in ('positions','recent_trades'):
-        if not isinstance(report.get(field),list) or len(report[field])>500 or any(not isinstance(row,dict) for row in report[field]):
-            raise ValueError('Invalid report rows')
-    for field in ('last_decisions',):
-        if field in report and (not isinstance(report[field],list) or any(not isinstance(row,dict) for row in report[field])):
-            raise ValueError('Invalid decisions')
-    # Strict JSON disallows NaN and Infinity in authenticated worker reports.
-    json.dumps(report,allow_nan=False)
-    return report
-
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -198,9 +184,7 @@ class Handler(BaseHTTPRequestHandler):
             name=self.path[1:]
             kind='text/css' if name.endswith('.css') else 'text/javascript'
             return self.send((DASHBOARD/name).read_text(),content_type=kind+'; charset=utf-8')
-        if self.path=='/api/status':
-            with LOCK:data=json.dumps(REPORT or {'report':None})
-            return self.send(data)
+        if self.path=='/api/status':return self.send('{"error":"Simulation reporting has been retired."}',410)
         if self.path=='/api/market/chart':
             try:
                 from market_chart import market_chart
@@ -209,7 +193,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path=='/api/live/status':return self.send(json.dumps(live_readiness()))
         self.send('{}',404)
     def do_POST(self):
-        global REPORT, LAST_CHECK, LIVE_REPORT
+        global LAST_CHECK, LIVE_REPORT
+        if self.path=='/api/report':return self.send('{"error":"Simulation reporting has been retired."}',410)
         if self.path == '/api/live/worker':
             token = os.getenv('CAPITAL_LIVE_REPORT_TOKEN','')
             if not token or not hmac.compare_digest(self.headers.get('Authorization',''), 'Bearer '+token):
@@ -275,15 +260,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(json.dumps(result))
             except (ValueError,ConnectionCheckError) as error:return self.send(json.dumps({'verified':False,'error':str(error)}),400)
             except Exception:return self.send('{"verified":false,"error":"Bybit is unavailable. Connection not verified; no orders submitted."}',503)
-        token=os.getenv('CAPITAL_REPORT_TOKEN','')
-        if self.path!='/api/report' or not token or not hmac.compare_digest(self.headers.get('Authorization',''),'Bearer '+token):return self.send('{}',403)
-        try:
-            size=int(self.headers.get('Content-Length','0'))
-            if not 0<size<=200000:return self.send('{}',413)
-            report=validate_report(json.loads(self.rfile.read(size)))
-            with LOCK:REPORT={'received_at':time.time(),'report':report}
-            return self.send('{"accepted":true}')
-        except (ValueError,TypeError):return self.send('{}',400)
+        return self.send('{}',404)
+
 def warm_market_chart():
     try:
         from market_chart import market_chart

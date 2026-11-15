@@ -14,14 +14,14 @@ test('freshness uses scan time so replaying old data is stale',()=>{
   assert.equal(reportAge({received_at:2000,report:{}},1000),Infinity);
 });
 test('pair and closed trade filters intersect',()=>{
-  const rows=[{symbol:'BTCUSDT',action:'DEMO_BUY'},{symbol:'BTCUSDT',action:'DEMO_SELL'},{symbol:'ETHUSDT',action:'DEMO_SELL'}];
-  assert.deepEqual(filterTrades(rows,'BTCUSDT','DEMO_SELL'),[rows[1]]);
+  const rows=[{symbol:'BTCUSDT',action:'Buy'},{symbol:'BTCUSDT',action:'Sell'},{symbol:'ETHUSDT',action:'Sell'}];
+  assert.deepEqual(filterTrades(rows,'BTCUSDT','Sell'),[rows[1]]);
   assert.equal(filterTrades(rows,'all','all').length,3);
 });
 test('CSV quotes text and neutralizes spreadsheet formulas',()=>{
   assert.equal(csvCell('=HYPERLINK("bad")'),'"\'=HYPERLINK(""bad"")"');
   assert.equal(csvCell('a,b'),'"a,b"');
-  const csv=tradesCSV([{ts:0,symbol:'BTCUSDT',action:'DEMO_BUY',reason:'signal',price:'1',pnl:'0'}]);
+  const csv=tradesCSV([{ts:0,symbol:'BTCUSDT',action:'Buy',reason:'signal',price:'1',pnl:'0'}]);
   assert.ok(csv.includes('1970-01-01T00:00:00.000Z'));assert.ok(csv.endsWith(',""'));
 });
 

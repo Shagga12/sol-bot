@@ -17,7 +17,7 @@ function reasonName(reason) {
     warming_up_price_history: 'Collecting price history', stop_loss_cooldown: 'Cooling down after an exit',
     daily_loss_limit: 'Daily entry loss limit reached', spread_too_wide: 'Spread is too wide',
     position_already_open: 'Position is open', moving_average_signal: 'Moving average signal',
-    take_profit: 'Profit target reached', stop_loss: 'Stop-loss condition', no_available_balance: 'No available demo cash'};
+    take_profit: 'Profit target reached', stop_loss: 'Stop-loss condition', no_available_balance: 'No available funds'};
   return names[reason] || String(reason || 'Awaiting worker data').replaceAll('_', ' ');
 }
 function reportAge(data, now = Date.now() / 1000) {
@@ -36,9 +36,9 @@ function csvCell(value) {
   return '"' + text.replaceAll('"', '""') + '"';
 }
 function tradesCSV(trades) {
-  const columns = ['time_utc', 'symbol', 'action', 'reason', 'price', 'pnl_usdt'];
+  const columns = ['time_utc', 'symbol', 'action', 'reason', 'price', 'cumulative_realized_pnl_usdt'];
   const rows = trades.map(t => [numeric(t.ts) === null ? '' : new Date(Number(t.ts)*1000).toISOString(),
-    t.symbol, t.action, t.reason, t.price, t.action === 'DEMO_SELL' ? t.pnl : '']);
+    t.symbol, t.action, t.reason, t.price, t.action === 'Sell' ? t.pnl : '']);
   return [columns, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n');
 }
 function setupAccountNote(config, result, now = Date.now() / 1000) {
@@ -54,11 +54,11 @@ if (typeof module !== 'undefined') module.exports.setupAccountNote = setupAccoun
 
 if (typeof document !== 'undefined') {
   const el = id => document.getElementById(id);
-  let reportData = null, currentTrades = [], isLoading = false, connectionBusy = false;
+  let currentTrades = [], isLoading = false, connectionBusy = false;
   let liveConfig = null, accountCheck = null, draftRevision = 0;
   const draftKey = 'capital-connect-owner-setup-v1';
   const viewNames = {overview: ['Your trading desk.', 'A clear view of your bot, your activity and your next step.', 'Overview'],
-    activity: ['Every trade, in view.', 'Review your demo activity and see how the results add up.', 'Activity'],
+    activity: ['Every trade, in view.', 'Review reconciled real-money orders and cumulative realized results.', 'Activity'],
     account: ['Your Bybit account.', 'Verify your connection and funds without placing an order.', 'Bybit account'],
     setup: ['Your path to trading.', 'A straightforward view of what is ready and what comes next.', 'Trading setup']};
   function text(id, value) { el(id).textContent = value; }
@@ -119,77 +119,29 @@ if (typeof document !== 'undefined') {
     const time = document.createElement('time'); time.dateTime = date.toISOString(); time.textContent = date.toLocaleTimeString(undefined, {hour: 'numeric', minute: '2-digit'});
     node.append(time); return node;
   }
-  const tradeColumns = [{label: 'Pair', render: t => pairName(t.symbol)}, {label: 'Activity', render: t => {
-    const span = document.createElement('span'); span.className = 'trade-kind' + (t.action === 'DEMO_SELL' ? ' sell' : '');
-    span.textContent = t.action === 'DEMO_BUY' ? 'DEMO BUY' : t.action === 'DEMO_SELL' ? 'DEMO SELL' : String(t.action); return span;
-  }}, {label: 'Price · USDT', render: t => money(t.price)}, {label: 'Realized P&L', render: t => {
-    const span = document.createElement('span'); span.textContent = t.action === 'DEMO_SELL' ? money(t.pnl, true) : '—';
-    const n = numeric(t.pnl); if (t.action === 'DEMO_SELL' && n !== null) span.className = n < 0 ? 'negative' : n > 0 ? 'positive' : ''; return span;
-  }}, {label: 'Reason', render: t => reasonName(t.reason), className: 'reason'}, {label: 'Time · local', render: tradeTime}];
-  function filtered() { return filterTrades(currentTrades, el('pair-filter').value, el('action-filter').value); }
-  function renderTrades() {
-    makeTable('trade-history', tradeColumns, filtered(), reportData?.report ? 'No trades match this view' : 'Waiting for trade data',
-      reportData?.report ? 'Try a different pair or activity filter.' : 'The dashboard will fill in after the worker reports.');
-    el('export').disabled = filtered().length === 0;
+  const tradeColumns=[{label:'Pair',render:t=>pairName(t.symbol)},{label:'Activity',render:t=>t.action},{label:'Average fill · USDT',render:t=>money(t.price)},{label:'BTC quantity',render:t=>t.qty},{label:'Cumulative realized P&L · USDT',render:t=>money(t.pnl,true)},{label:'Reconciled · local',render:tradeTime}];
+  function filtered(){return filterTrades(currentTrades,el('pair-filter').value,el('action-filter').value);}
+  function renderTrades(){
+    makeTable('trade-history',tradeColumns,filtered(),'No real-money trades to show','Filled orders appear after reconciliation. Check execution status if the worker is not reporting.');
+    makeTable('recent-trades',tradeColumns,currentTrades.slice(0,5),'No real-money trades to show','No simulated balances or trades are displayed.');
+    el('export').disabled=filtered().length===0;
   }
-  function renderMarkets(report) {
-    const latest = Array.isArray(report?.last_decisions) ? report.last_decisions : [];
-    const nodes = PAIRS.map(symbol => {
-      const coin = symbol.slice(0, -4), decision = latest.find(x => x.symbol === symbol);
-      const card = document.createElement('article'); card.className = 'market-card';
-      const top = document.createElement('div'); top.className = 'market-top';
-      const mark = document.createElement('span'); mark.className = 'coin-mark ' + coin; mark.textContent = {BTC: '₿', ETH: 'Ξ', SOL: '◎', BNB: '◇'}[coin];
-      const name = document.createElement('div'), strong = document.createElement('strong'), small = document.createElement('small');
-      strong.textContent = coin + ' / USDT'; small.textContent = 'Monitored spot pair'; name.append(strong, small); top.append(mark, name);
-      const price = document.createElement('strong'); price.className = 'market-price'; price.textContent = numeric(decision?.price) === null ? '—' : '$' + money(decision.price);
-      const state = document.createElement('div'); state.className = 'decision';
-      const dot = document.createElement('span'); dot.className = 'status-dot waiting';
-      const label = document.createElement('span'); label.textContent = reasonName(decision?.reason); state.append(dot, label);
-      card.append(top, price, state); return card;
-    });
-    el('market-cards').replaceChildren(...nodes);
-  }
-  function updateFreshness() {
-    const age = reportAge(reportData);
-    if (age === null) {
-      text('worker-status', 'Waiting for worker report'); text('last-report', 'Next scheduled scan will populate the dashboard');
-      el('worker-dot').className = 'status-dot waiting'; badge('ready-worker', 'Waiting'); return;
-    }
-    const stale = age > 1200, minutes = Math.floor(age / 60);
-    text('worker-status', stale ? 'Worker report is stale' : 'Demo worker reporting');
-    text('last-report', Number.isFinite(age) ? (minutes < 1 ? 'Last scan less than a minute ago' : 'Last scan ' + minutes + ' min ago') : 'Worker timestamp needs checking');
-    el('worker-dot').className = 'status-dot ' + (stale ? 'stale' : '');
-    badge('ready-worker', stale ? 'Stale' : 'Reporting', stale ? 'amber' : 'green');
-    text('ready-worker-note', stale ? 'Displayed results are old. Check the worker before relying on them.' : 'A current demo report has reached this dashboard.');
-    text('footer-mode', stale ? 'Demo data · stale report' : 'Demo data only');
-  }
-  function renderReport(data) {
-    if (data.report && (data.report.mode !== 'DEMO' || data.report.live_order_execution !== false ||
-        !Array.isArray(data.report.positions) || !Array.isArray(data.report.recent_trades))) throw Error('Worker report format is invalid. Previous data may be stale.');
-    reportData = data;
-    const report = data.report;
-    renderMarkets(report); updateFreshness();
-    const fields = {'equity': 'estimated_liquidation_equity_usdt', 'total-pnl': 'total_pnl_after_exit_fee_usdt', 'cash': 'cash_usdt',
-      'commission': 'commission_estimate_usdt', 'realized': 'realized_pnl_usdt', 'unrealized': 'unrealized_pnl_after_exit_fee_usdt'};
-    for (const [id, field] of Object.entries(fields)) amount(id, report?.[field], ['total-pnl', 'realized', 'unrealized'].includes(id));
-    if (!report) {
-      currentTrades = []; text('position-count', '—');
-      ['setting-interval','setting-strategy','setting-profit','setting-stop'].forEach(id => text(id,'Awaiting worker report'));
-      empty('positions', 'Waiting for the worker', 'No balances or positions have been invented. The next scheduled report will populate this view.');
-      empty('recent-trades', 'No report received yet', 'The demo worker reports every 15 minutes.'); renderTrades(); return;
-    }
-    currentTrades = report.recent_trades.filter(t => ['DEMO_BUY', 'DEMO_SELL'].includes(t.action));
-    text('position-count', String(report.positions.length));
-    makeTable('positions', [{label:'Pair',render:p=>pairName(p.symbol)}, {label:'Entry · USDT',render:p=>money(p.entry)},
-      {label:'Quantity',render:p=>numeric(p.qty) === null ? '—' : String(p.qty)}, {label:'Cost · USDT',render:p=>money(p.cost)}],
-      report.positions, 'No open demo positions', 'The bot is waiting for a qualifying signal.');
-    makeTable('recent-trades', tradeColumns, currentTrades.slice(0, 5), 'No demo trades yet', 'Trades will appear after the worker records a simulated buy or sell.');
+  function renderExecution(status){
+    const real=!!(status?.control_connected&&status.environment==='mainnet');
+    const execution=real?status.execution:null,limits=real?status.limits:null;
+    currentTrades=real&&status.chart?status.chart.fills.map(f=>({...f,symbol:limits?.symbol||'BTCUSDT',action:f.side})).reverse():[];
+    amount('live-allocation',limits?.capital_usdt);amount('live-realized',execution?.realized_pnl_usdt,true);amount('live-cost',execution?.cost_usdt);
+    text('live-quantity',execution?execution.owned_qty+' BTC':'—');
+    text('worker-status',real?'Real-money worker: '+status.state:'Execution status unavailable');
+    text('last-report',real?'Current execution report received':'Waiting for an authenticated mainnet report');
+    el('worker-dot').className='status-dot '+(real?'':'stale');
+    badge('ready-worker',real?'Reporting':'Unverified',real?'green':'amber');
+    text('ready-worker-note',real?'The mainnet execution worker is reporting.':'No fresh mainnet execution report.');
+    text('footer-mode','Real-money execution');
+    if(!execution)empty('positions','Position data unavailable','The mainnet worker must report before holdings can be shown.');
+    else if(Number(execution.owned_qty)===0)empty('positions','No bot-held BTC','No open BTC holding is recorded in the execution journal.');
+    else makeTable('positions',[{label:'Pair',render:()=>limits?.symbol||'BTCUSDT'},{label:'BTC quantity',render:r=>r.owned_qty},{label:'Cost · USDT',render:r=>money(r.cost_usdt)},{label:'Protective orders recorded',render:r=>String(r.active_protections)}],[execution],'','');
     renderTrades();
-    const interval = numeric(report.interval_seconds);
-    text('setting-interval', interval === null ? 'Not reported' : (interval / 60) + ' minutes');
-    text('setting-strategy', report.strategy_version || 'Not reported');
-    const percent = value => numeric(value) === null ? 'Not reported' : (Number(value)*100).toLocaleString(undefined, {maximumFractionDigits:3}) + '%';
-    text('setting-profit', percent(report.take_profit_net_return_target)); text('setting-stop', percent(report.stop_loss_price_move));
   }
   async function requestJSON(url, options = {}, timeout = 40000) {
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeout);
@@ -256,7 +208,7 @@ if (typeof document !== 'undefined') {
     if(pnl.length)pnl.push({ts:now,value:pnl.at(-1).value});
     else if(chart&&execution&&Number(execution.realized_pnl_usdt)===0)pnl.push({ts:now-3600,value:0},{ts:now,value:0});
     drawChart('pnl-chart',pnl,{height:190,step:true,empty:'No verified real-money P&L history available'});
-    text('chart-execution-note',!real?'Real-money journal unavailable or worker report stale. Demo and Testnet trades are excluded.':!chart?'Waiting for chart telemetry from the worker.':`Real-money journal: ${chart.total_fills} reconciled order(s). ${chart.total_fills>100?'Showing the latest 100 with lifetime cumulative P&L.':fills.length?'No simulated trades included.':'No filled orders yet; realized P&L is zero.'} Protective levels appear when a bracket is recorded.`);
+    text('chart-execution-note',!real?'Real-money journal unavailable or worker report stale. Only verified mainnet orders are shown.':!chart?'Waiting for chart telemetry from the worker.':`Real-money journal: ${chart.total_fills} reconciled order(s). ${chart.total_fills>100?'Showing the latest 100 with lifetime cumulative P&L.':fills.length?'Only reconciled mainnet orders included.':'No filled orders yet; realized P&L is zero.'} Protective levels appear when a bracket is recorded.`);
     text('chart-freshness',fresh?`Bybit spot · updated ${new Date(market.fetched_at*1000).toLocaleTimeString()} · ${real?'mainnet '+status.state:'execution status unverified'}`:'Price feed unavailable or stale; retrying every 30 seconds.');
   }
   async function loadChartMarket(){try{chartMarket=await requestJSON('/api/market/chart');}catch{chartMarket=null;}renderLiveCharts();}
@@ -274,10 +226,10 @@ if (typeof document !== 'undefined') {
       text('live-state', status.control_connected ? `${status.environment}: ${status.state}` : (status.connection_monitor_connected ? 'Connection check online — orders off' : 'Worker not reporting'));
       if (latestControlStatus?.config_digest !== status.config_digest) el('confirm-real-start').checked=false;
       latestControlStatus=status;
-      chartStatus=status; renderLiveCharts();
+      chartStatus=status; renderLiveCharts(); renderExecution(status);
       badge('ready-activation', !status.control_connected ? 'Not connected' : status.state, status.orders_running ? 'green' : 'amber');
       text('execution-mode-badge', !status.control_connected ? 'STATUS UNKNOWN' : (status.real_trading_active ? 'REAL TRADING ACTIVE' : (status.orders_running ? 'TESTNET ACTIVE' : 'EXECUTION OFF')));
-      text('execution-overview-status', `Execution: ${status.environment || 'unreported'} · ${status.state}. Balance cards and Activity below show demo trades. See Trading setup for the execution journal.`);
+      text('execution-overview-status', `Execution: ${status.environment || 'unreported'} · ${status.state}. Overview and Activity show only the real-money execution journal. Figures are not your exchange wallet balance.`);
       const execution=status.execution;
       text('execution-journal-summary', execution ? `Bot-owned quantity: ${execution.owned_qty} · Cost: ${money(execution.cost_usdt)} USDT · Realized execution P&L: ${money(execution.realized_pnl_usdt, true)} USDT · Pending entries: ${execution.pending_entries} · Active protective orders: ${execution.active_protections}.` : 'No execution journal reported yet. This is not your exchange wallet balance.');
       el('activate-live').disabled = !(status.can_activate && (status.environment !== 'mainnet' || el('confirm-real-start').checked));
@@ -288,7 +240,7 @@ if (typeof document !== 'undefined') {
       el('live-blockers').replaceChildren(...blockers.map(value => { const li=document.createElement('li'); li.textContent=String(value); return li; }));
     } catch (error) {
       latestControlStatus=null;
-      chartStatus=null; renderLiveCharts();
+      chartStatus=null; renderLiveCharts(); renderExecution(null);
       el('activate-live').disabled=true; el('stop-live').disabled=true;
       text('execution-mode-badge','STATUS UNKNOWN');
       text('live-state','Backend check failed');
@@ -339,16 +291,14 @@ if (typeof document !== 'undefined') {
     const saved=JSON.parse(localStorage.getItem(draftKey));
     if (saved && typeof saved==='object') {
       const form=el('live-setup-form');
-      for (const [key,value] of Object.entries(saved)) if (form.elements.namedItem(key) && typeof value==='string') form.elements.namedItem(key).value=value;
+      for (const [key,value] of Object.entries(saved)) if (key!=='environment' && form.elements.namedItem(key) && typeof value==='string') form.elements.namedItem(key).value=value;
       text('live-draft-status','Saved browser draft restored. Validate it again before downloading. It has not been applied to the bot.');
     }
   } catch {}
-  async function load() {
-    if (isLoading) return;
-    isLoading = true; el('refresh').disabled = true;
-    try { renderReport(await requestJSON('/api/status', {}, 30000)); feedback(''); }
-    catch (error) { feedback(error.message + (reportData?.report ? ' Showing the last received data.' : '')); badge('ready-worker', 'Check failed', 'amber'); text('worker-status', 'Report refresh failed'); el('worker-dot').className = 'status-dot stale'; }
-    finally { isLoading = false; el('refresh').disabled = false; }
+  async function load(){
+    if(isLoading)return;isLoading=true;el('refresh').disabled=true;
+    try{await Promise.all([loadLiveStatus(),loadChartMarket()]);feedback('');}
+    finally{isLoading=false;el('refresh').disabled=false;}
   }
   function clearAccount() {
     accountCheck=null; updateLiveAccount();
@@ -375,7 +325,7 @@ if (typeof document !== 'undefined') {
       badge('ready-funds', fundsKnown ? (available >= minimum ? 'Funds reported' : 'Below minimum') : 'Unverified', fundsKnown && available >= minimum ? 'green' : 'amber');
       text('ready-funds-note',fundsKnown ? pairName(result.symbol) + ': ' + money(available) + ' USDT available; minimum order value ' + money(minimum) + ' USDT. Fees, sizing and order validation still apply.' : (result.funding_note || 'Available funds or instrument rules could not be verified.'));
       el('bybit-result').className = 'connection-result success';
-      text('bybit-result','Account connection verified. Credentials were not saved. ' + (result.funding_note || '') + ' Real orders remain disabled.');
+      text('bybit-result','Account connection verified. Credentials were not saved. ' + (result.funding_note || '') + ' This diagnostic does not change the worker state.');
     } catch (error) {
       el('bybit-result').className = 'connection-result error'; text('bybit-result',error.message + ' Credentials were cleared. No orders were submitted.');
       text('account-status','Connection not verified'); badge('ready-account','Check failed','amber');
@@ -386,11 +336,11 @@ if (typeof document !== 'undefined') {
   el('export').addEventListener('click',() => {
     const rows = filtered(); if (!rows.length) return;
     const url = URL.createObjectURL(new Blob(['\ufeff' + tradesCSV(rows)],{type:'text/csv;charset=utf-8'}));
-    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'capital-connect-demo-activity.csv';
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'capital-connect-real-activity.csv';
     document.body.append(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url),1000);
   });
   window.addEventListener('hashchange',showView);
-  showView(); renderReport({report:null}); load(); loadLiveStatus();
-  setInterval(() => { updateFreshness(); updateLiveAccount(); if (el('auto-update').checked) load(); },60000);
+  showView(); renderExecution(null); load();
+  setInterval(updateLiveAccount,60000);
 }
 
