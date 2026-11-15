@@ -8,6 +8,9 @@ from pathlib import Path
 import secrets
 import subprocess
 import sys
+import sqlite3
+from decimal import Decimal
+from dataclasses import asdict
 from urllib.request import Request, build_opener
 from .live import Config, NoRedirect
 
@@ -32,7 +35,30 @@ class Supervisor:
             self.ready = False  # Never conceal a halt with an automatic restart.
         return {'worker_id':self.worker_id,'config_digest':self.digest,
                 'environment':self.config.environment,'state':self.state,
-                'orders_enabled':self.state == 'RUNNING','ready':self.ready}
+                'orders_enabled':self.state == 'RUNNING','ready':self.ready,
+                'limits':{key:value for key,value in asdict(self.config).items() if key!='environment'},
+                'execution':self.execution_summary()}
+
+    def execution_summary(self):
+        path=Path(self.directory)/'execution-journal.sqlite3'
+        if not path.exists(): return None
+        db=None
+        try:
+            db=sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=1)
+            db.row_factory=sqlite3.Row
+            db.execute('BEGIN')
+            binding=json.loads(db.execute('SELECT binding FROM live_meta WHERE id=1').fetchone()[0])
+            if binding['config']!=asdict(self.config):return None
+            position=db.execute('SELECT qty,cost FROM live_position WHERE id=1').fetchone()
+            pnl=sum((Decimal(r[0]) for r in db.execute('SELECT pnl FROM live_orders WHERE terminal=1')),Decimal(0))
+            return {'owned_qty':position['qty'],'cost_usdt':position['cost'],
+                    'realized_pnl_usdt':str(pnl),
+                    'pending_entries':db.execute("SELECT COUNT(*) FROM live_orders WHERE terminal=0 AND side='Buy'").fetchone()[0],
+                    'active_protections':db.execute("SELECT COUNT(*) FROM live_protection WHERE state='ACTIVE'").fetchone()[0]}
+        except (sqlite3.Error,ValueError,KeyError,TypeError,IndexError):
+            return None
+        finally:
+            if db is not None:db.close()
 
     def stop(self):
         if self.child is not None:

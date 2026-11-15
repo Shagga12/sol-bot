@@ -414,7 +414,8 @@ class Worker:
         expected = [(bucket - 30 + i) * 900 for i in range(30)]
         if [r[0] for r in closed] != expected:
             raise Halt('Thirty consecutive completed candles are required')
-        decision = evaluate([r[1] for r in closed], free, daily_pnl, start, (ask-bid)/ask)
+        decision = evaluate([r[1] for r in closed], free, daily_pnl, start, (ask-bid)/ask,
+                            daily_loss_limit_usdt=number(self.c.daily_loss_usdt))
         if decision.action != 'DEMO_BUY':
             self.journal.db.execute('INSERT INTO live_scans VALUES(?)', (bucket,))
             return {'state': 'WAIT', 'reason': decision.reason}

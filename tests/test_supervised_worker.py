@@ -47,3 +47,21 @@ class SupervisorTests(unittest.TestCase):
         Path(self.path).write_text(json.dumps(asdict(config(order_usdt='9'))))
         changed=Supervisor(self.path,self.tmp.name,self.s.digest,self.factory)
         self.assertFalse(changed.ready)
+
+class ExecutionSummaryTests(unittest.TestCase):
+    def test_read_only_summary_reports_bot_ledger_without_credentials(self):
+        from capital_connect_v1.protected import ProtectedJournal
+        with tempfile.TemporaryDirectory() as directory:
+            path=str(Path(directory)/'config.json')
+            Path(path).write_text(json.dumps(asdict(config())))
+            supervisor=Supervisor(path,directory,'')
+            self.assertIsNone(supervisor.execution_summary())
+            ledger=ProtectedJournal(str(Path(directory)/'execution-journal.sqlite3'),config(),'owner')
+            try:
+                ledger.db.execute("UPDATE live_position SET qty='.0001',cost='6' WHERE id=1")
+                summary=supervisor.execution_summary()
+                self.assertEqual(summary['owned_qty'],'.0001')
+                self.assertEqual(summary['cost_usdt'],'6')
+                self.assertEqual(summary['realized_pnl_usdt'],'0')
+                self.assertEqual(set(summary),{'owned_qty','cost_usdt','realized_pnl_usdt','pending_entries','active_protections'})
+            finally:ledger.db.close()
