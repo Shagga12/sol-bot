@@ -1,7 +1,7 @@
 import unittest,json,tempfile
 from pathlib import Path
 from dataclasses import asdict
-from capital_connect_v1.execution_charts import chart_snapshot
+from capital_connect_v1.execution_charts import chart_snapshot, verified_exit_reason
 from capital_connect_v1.protected import ProtectedJournal
 from test_live import config
 
@@ -22,3 +22,10 @@ class ExecutionChartTests(unittest.TestCase):
             j.db.close()
     def test_missing_journal_is_unknown_not_fake_zero(self):
         with tempfile.TemporaryDirectory() as directory:self.assertIsNone(chart_snapshot(directory,config()))
+
+    def test_exit_reason_requires_exchange_evidence(self):
+        self.assertEqual(verified_exit_reason({'stop_order_type':'StopLoss'},'Sell'),'Stop-loss')
+        self.assertEqual(verified_exit_reason({'stop_order_type':'TakeProfit'},'Sell'),'Take-profit')
+        self.assertEqual(verified_exit_reason({'stop_order_type':'tpslOrder'},'Sell'),'TP/SL (trigger unspecified)')
+        self.assertEqual(verified_exit_reason({},'Sell'),'Unverified exit')
+        self.assertIsNone(verified_exit_reason({'stop_order_type':'StopLoss'},'Buy'))
