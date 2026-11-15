@@ -11,6 +11,7 @@ import os
 import secrets
 import sqlite3
 import time
+import threading
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -20,6 +21,25 @@ DB_PATH = os.environ.get("TRADER_DB_PATH", "/var/data/traders.sqlite3")
 SESSION_SECRET = os.environ.get("TRADER_SESSION_SECRET", "")
 SESSION_TTL = 3600
 MAX_BODY = 4096
+ATTEMPTS = {}
+ATTEMPTS_LOCK = threading.Lock()
+
+def login_allowed(key):
+    now = time.monotonic()
+    with ATTEMPTS_LOCK:
+        # Bound memory use by dropping old entries.
+        if len(ATTEMPTS) > 5000:
+            for item, history in list(ATTEMPTS.items()):
+                if not history or now - history[-1] > 900:
+                    ATTEMPTS.pop(item, None)
+        history = [t for t in ATTEMPTS.get(key, ()) if now - t < 900]
+        ATTEMPTS[key] = history
+        return len(history) < 5
+
+def record_failed_login(key):
+    with ATTEMPTS_LOCK:
+        ATTEMPTS.setdefault(key, []).append(time.monotonic())
+
 
 def db():
     connection = sqlite3.connect(DB_PATH, timeout=10)
@@ -146,10 +166,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(400, {"error": "Invalid request"})
             if len(data["username"]) > 64 or len(data["password"]) > 256:
                 return self.respond(400, {"error": "Invalid request"})
+            client = self.client_address[0]
+            key = (client, data["username"].casefold())
+            if not login_allowed(key):
+                return self.respond(429, {"error": "Too many login attempts. Try again later."}, [("Retry-After", "900")])
             user = authenticate(data["username"], data["password"])
             if not user:
+                record_failed_login(key)
                 time.sleep(.3)
                 return self.respond(401, {"error": "Invalid credentials"})
+            with ATTEMPTS_LOCK:
+                ATTEMPTS.pop(key, None)
             token = secrets.token_hex(32)
             with db() as connection:
                 connection.execute("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)",
