@@ -38,6 +38,11 @@ def run_testnet_check(directory, runner=subprocess.run):
                     '--config',str(path),'--directory',str(root),'--phase',phase,'--testnet-orders']
                 trial = runner(args,env=env,timeout=90,check=False)
                 if trial.returncode != 0: return trial.returncode
+            if os.getenv('CAPITAL_TESTNET_LIFECYCLE_TESTS') == 'run':
+                args=[sys.executable,'-m','capital_connect_v1.testnet_lifecycle','--config',str(path),
+                      '--directory',str(root),'--testnet-orders']
+                trial=runner(args,env=env,timeout=180,check=False)
+                if trial.returncode != 0: return trial.returncode
         return result.returncode
     except (ValueError, TypeError, KeyError, OSError, subprocess.SubprocessError):
         print('Testnet check: setup or transport failure; credentials not logged', flush=True)
