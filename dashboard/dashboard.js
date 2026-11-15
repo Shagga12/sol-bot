@@ -211,7 +211,7 @@ if (typeof document !== 'undefined') {
     if (!liveConfig || liveConfig.environment !== 'mainnet' || accountCheck?.symbol !== liveConfig.symbol || !accountCheck?.verified || Date.now()/1000-accountCheck.checked_at>300) return;
     const free = numeric(accountCheck.available_spot_usdt), minimum = numeric(accountCheck.minimum_order_usdt);
     if (free === null || minimum === null) { text('live-funding-note','Available non-borrowed funds or pair minimum are unverified.'); return; }
-    const ceiling = Math.min(Number(liveConfig.order_usdt), Number(liveConfig.capital_usdt), free * .1, 10);
+    const ceiling = Math.min(Number(liveConfig.order_usdt), Number(liveConfig.capital_usdt), free);
     text('live-funding-note', 'Current mainnet funds: ' + money(free) + ' USDT. Entry ceiling before fees and rounding: ' + money(ceiling) + ' USDT; pair minimum: ' + money(minimum) + ' USDT. ' + (ceiling <= minimum ? 'Sizing may fail after fees and rounding.' : 'A worker-side size check is still required.'));
   }
   function invalidateDraft() {
@@ -222,17 +222,29 @@ if (typeof document !== 'undefined') {
   async function loadLiveStatus() {
     try {
       const status = await requestJSON('/api/live/status');
-      // This release deliberately supports preparation only. A browser or
-      // modified response can never unlock an unimplemented execution channel.
-      text('live-state', status.connection_monitor_connected ? 'Connection worker online — orders off' : 'Connection worker not reporting');
+      // Only an authenticated, fresh worker report can unlock Start.
+      text('live-state', status.control_connected ? `${status.environment}: ${status.state}` : (status.connection_monitor_connected ? 'Connection check online — orders off' : 'Worker not reporting'));
+      el('activate-live').disabled = !status.can_activate;
+      el('stop-live').disabled = !status.control_connected;
       const blockers = Array.isArray(status.blockers) ? status.blockers : ['Execution readiness could not be established.'];
       el('live-blockers').replaceChildren(...blockers.map(value => { const li=document.createElement('li'); li.textContent=String(value); return li; }));
     } catch (error) {
+      el('activate-live').disabled=true; el('stop-live').disabled=true;
       text('live-state','Backend check failed');
       const li=document.createElement('li'); li.textContent=error.message; el('live-blockers').replaceChildren(li);
     }
-    el('activate-live').disabled = true;
   }
+  async function sendControl(action) {
+    el('activate-live').disabled=true; el('stop-live').disabled=true;
+    try {
+      await requestJSON(`/api/live/${action}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+      text('live-control-result', `${action === 'start' ? 'Start' : 'Stop'} requested. Awaiting worker acknowledgement.`);
+    } catch(error) { text('live-control-result', error.message); }
+    await loadLiveStatus();
+  }
+  el('activate-live').addEventListener('click', () => sendControl('start'));
+  el('stop-live').addEventListener('click', () => sendControl('stop'));
+  setInterval(() => { if (!document.hidden) loadLiveStatus(); }, 10000);
   el('live-setup-form').addEventListener('input', invalidateDraft);
   el('live-setup-form').addEventListener('change', invalidateDraft);
   el('live-setup-form').addEventListener('submit', async event => {

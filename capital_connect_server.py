@@ -22,10 +22,17 @@ from pathlib import Path
 
 DASHBOARD = Path(__file__).resolve().parent / 'dashboard'
 SYMBOLS = ('BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT')
-VERSION = 'owner-setup-v2'
+VERSION = 'owner-control-v3'
+from activation_control import ActivationControl
+CONTROL = ActivationControl()
 
 
 def live_readiness():
+    controlled = CONTROL.status()
+    if controlled['control_connected']:
+        blockers = [] if controlled['can_activate'] or controlled['orders_running'] else ['Execution validation is incomplete; Start remains locked.']
+        return {**controlled, 'execution_connected':True, 'connection_monitor_connected':True,
+                'blockers':blockers, 'stop_note':'Stop ends the worker process; it does not sell holdings or cancel exchange orders.'}
     with LOCK:
         report = LIVE_REPORT
     fresh = bool(report and time.time()-report['received_at'] < 180)
@@ -192,6 +199,27 @@ class Handler(BaseHTTPRequestHandler):
         self.send('{}',404)
     def do_POST(self):
         global REPORT, LAST_CHECK, LIVE_REPORT
+        if self.path == '/api/live/worker':
+            token = os.getenv('CAPITAL_LIVE_REPORT_TOKEN','')
+            if not token or not hmac.compare_digest(self.headers.get('Authorization',''), 'Bearer '+token):
+                return self.send('{}',403)
+            try:
+                size=int(self.headers.get('Content-Length','0'))
+                if not 0 < size <= 2000: return self.send('{}',413)
+                command=CONTROL.update(json.loads(self.rfile.read(size)))
+                return self.send(json.dumps(command))
+            except (ValueError,TypeError): return self.send('{}',400)
+        if self.path in ('/api/live/start','/api/live/stop'):
+            if not self.viewer(): return self.send('{}',401)
+            if self.headers.get('Origin') != os.getenv('CAPITAL_PUBLIC_ORIGIN','https://capital-connect-preflight.onrender.com'):
+                return self.send('{}',403)
+            if self.headers.get('Content-Type','').split(';')[0] != 'application/json': return self.send('{}',415)
+            try:
+                size=int(self.headers.get('Content-Length','0'))
+                if not 0 < size <= 1000: return self.send('{}',413)
+                if json.loads(self.rfile.read(size)) != {}: raise ValueError('Unexpected control fields')
+                return self.send(json.dumps(CONTROL.command('START' if self.path.endswith('/start') else 'STOP')),202)
+            except (ValueError,TypeError) as error: return self.send(json.dumps({'error':str(error)}),409)
         if self.path == '/api/live/report':
             token = os.getenv('CAPITAL_LIVE_REPORT_TOKEN', '')
             if not token or not hmac.compare_digest(self.headers.get('Authorization',''), 'Bearer '+token):

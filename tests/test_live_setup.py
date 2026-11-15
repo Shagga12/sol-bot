@@ -89,3 +89,27 @@ class HeartbeatTests(SetupHTTPTests):
             with patch.object(app.time,'time',return_value=app.LIVE_REPORT['received_at']+181):
                 self.assertFalse(app.live_readiness()['connection_monitor_connected'])
         app.LIVE_REPORT = None
+
+class ControlHTTPTests(SetupHTTPTests):
+    def test_controls_require_owner_auth_and_origin(self):
+        for path in ('/api/live/start','/api/live/stop'):
+            self.assertEqual(self.request(path,'POST','{}',auth=False)[0],401)
+            self.assertEqual(self.request(path,'POST','{}',headers={'Origin':'https://wrong.example','Content-Type':'application/json'})[0],403)
+    def test_locked_start_rejects_and_stop_is_accepted(self):
+        app.CONTROL=app.ActivationControl()
+        headers={'Origin':'https://capital-connect-preflight.onrender.com','Content-Type':'application/json'}
+        self.assertEqual(self.request('/api/live/start','POST','{}',headers=headers)[0],409)
+        self.assertEqual(self.request('/api/live/stop','POST','{}',headers=headers)[0],202)
+    def test_worker_control_channel_rejects_unauthenticated_requests(self):
+        self.assertEqual(self.request('/api/live/worker','POST','{}')[0],403)
+    def test_authenticated_status_and_stop_roundtrip(self):
+        app.CONTROL=app.ActivationControl()
+        report={'state':'STOPPED','orders_enabled':False,'worker_id':'a'*64,'config_digest':'b'*64,'environment':'mainnet','ready':False}
+        with patch.dict('os.environ',{'CAPITAL_LIVE_REPORT_TOKEN':'test-control-token'}):
+            headers={'Authorization':'Bearer test-control-token'}
+            status,_,body=self.request('/api/live/worker','POST',json.dumps(report),headers=headers)
+            self.assertEqual(status,200)
+            self.assertEqual(json.loads(body)['action'],'STOP')
+            self.assertTrue(app.live_readiness()['control_connected'])
+            self.assertFalse(app.live_readiness()['can_activate'])
+        app.CONTROL=app.ActivationControl()
