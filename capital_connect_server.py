@@ -22,7 +22,7 @@ from pathlib import Path
 
 DASHBOARD = Path(__file__).resolve().parent / 'dashboard'
 SYMBOLS = ('BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT')
-VERSION = 'owner-control-v3'
+VERSION = 'owner-control-v4'
 from activation_control import ActivationControl
 CONTROL = ActivationControl()
 
@@ -114,6 +114,12 @@ def bybit_read(path, key, secret, params=None):
         raise ConnectionCheckError('Unexpected Bybit response. Connection not verified.')
     return data['result']
 
+def compatible_spot_access(info):
+    permissions=info.get('permissions',{})
+    return (info.get('readOnly')==0 and permissions.get('Spot')==['SpotTrade'] and
+            not any(v for k,v in permissions.items() if k!='Spot' and
+                    not (k=='Derivatives' and v==['DerivativesTrade'])))
+
 def check_bybit(input):
     symbol=input.get('symbol','BTCUSDT')
     if symbol not in SYMBOLS:
@@ -153,7 +159,7 @@ def check_bybit(input):
         'wallet_usdt':coin.get('walletBalance'), 'locked_usdt':coin.get('locked'),
         'note':'Wallet balance is not a verified spendable amount. Check Available in Bybit before placing your trade.',
         'spot_trade_permission': info.get('readOnly') == 0 and 'SpotTrade' in info.get('permissions', {}).get('Spot', []),
-        'dedicated_spot_key': info.get('readOnly') == 0 and info.get('permissions', {}).get('Spot') == ['SpotTrade'] and not any(v for k,v in info.get('permissions', {}).items() if k != 'Spot'),
+        'dedicated_spot_key': compatible_spot_access(info),
         'automatic_real_orders':False,'credentials_saved':False,**funding}
 
 def validate_report(report):
