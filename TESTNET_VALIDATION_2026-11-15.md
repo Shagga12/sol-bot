@@ -33,4 +33,4 @@ Use one dedicated account and one worker; avoid concurrent manual trading and ot
 
 ## Local regression checks
 
-90 Python worker tests, 39 Python dashboard tests and 7 JavaScript dashboard tests pass. These are local regressions, separate from the actual Testnet checks above. Mainnet order execution requires the owner's deliberate Start after review.
+90 Python worker tests, 41 Python dashboard tests and 7 JavaScript dashboard tests pass. These are local regressions, separate from the actual Testnet checks above. Mainnet order execution requires the owner's deliberate Start after review.
