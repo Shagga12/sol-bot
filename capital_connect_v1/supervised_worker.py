@@ -13,6 +13,7 @@ from decimal import Decimal
 from dataclasses import asdict
 from urllib.request import Request, build_opener
 from .live import Config, NoRedirect
+from .execution_charts import chart_snapshot
 
 class Supervisor:
     def __init__(self, config_path, directory, release_digest, popen=subprocess.Popen):
@@ -37,7 +38,8 @@ class Supervisor:
                 'environment':self.config.environment,'state':self.state,
                 'orders_enabled':self.state == 'RUNNING','ready':self.ready,
                 'limits':{key:value for key,value in asdict(self.config).items() if key!='environment'},
-                'execution':self.execution_summary()}
+                'execution':self.execution_summary(),
+                'chart': chart_snapshot(self.directory,self.config)}
 
     def execution_summary(self):
         path=Path(self.directory)/'execution-journal.sqlite3'
@@ -100,6 +102,8 @@ def supervise(stop, config_path, directory):
     token = os.getenv('CAPITAL_LIVE_REPORT_TOKEN','')
     print(json.dumps({'control_connected':True,'execution_release_validated':supervisor.ready,
                       'orders_enabled':False,'config_digest':supervisor.digest}), flush=True)
+    chart=chart_snapshot(directory,supervisor.config)
+    print(json.dumps({'chart_journal_available':chart is not None,'reconciled_orders':chart['total_fills'] if chart else None}),flush=True)
     try:
         while not stop.is_set():
             try:
