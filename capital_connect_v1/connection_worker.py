@@ -2,6 +2,8 @@
 import json
 import os
 from pathlib import Path
+from urllib.request import Request, build_opener
+from capital_connect_v1.live import NoRedirect
 import signal
 import threading
 from capital_connect_v1.live import Config, main as check
@@ -19,6 +21,22 @@ def prepare_config(raw, directory):
     return str(path)
 
 
+def heartbeat(stop, state):
+    token = os.getenv('CAPITAL_LIVE_REPORT_TOKEN')
+    while True:
+        if token:
+            try:
+                request = Request('https://capital-connect-preflight.onrender.com/api/live/report',
+                    data=json.dumps({'state':state,'orders_enabled':False}).encode(),
+                    headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'}, method='POST')
+                with build_opener(NoRedirect).open(request, timeout=90) as response:
+                    if response.status != 200: raise OSError()
+                print('Connection worker heartbeat delivered', flush=True)
+            except Exception:
+                print('Connection worker heartbeat unavailable', flush=True)
+        if stop.wait(60): return
+
+
 def run():
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
@@ -32,13 +50,13 @@ def run():
     except (ValueError, TypeError, OSError):
         print(json.dumps({'state': 'SETUP_REQUIRED', 'orders_enabled': False,
                           'required': ['saved trading configuration', 'Bybit API credentials in Render']}), flush=True)
-        stop.wait()
+        heartbeat(stop, 'SETUP_REQUIRED')
         return
     # Run once only. A failure must be reviewed, not hidden by automatic retries.
     result = check(['check', '--config', path, '--db', str(Path(directory)/'connection-journal.sqlite3')])
     print(json.dumps({'state': 'CHECK_PASSED' if result == 0 else 'CHECK_FAILED',
                       'orders_enabled': False, 'dashboard_control_connected': False}), flush=True)
-    stop.wait()
+    heartbeat(stop, 'CHECK_PASSED' if result == 0 else 'CHECK_FAILED')
 
 
 if __name__ == '__main__':
