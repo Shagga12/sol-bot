@@ -95,10 +95,16 @@ class Bybit:
     def request(self, path, params=None, write=False):
         params = params or {}
         if write:
-            if not self.allow_orders or path != '/v5/order/create':
+            if not self.allow_orders or path not in ('/v5/order/create','/v5/order/cancel'):
                 raise Halt('Order submission is disabled')
+            if path == '/v5/order/cancel':
+                if (set(params) != {'category','symbol','orderId','orderFilter'} or
+                        params.get('category') != 'spot' or params.get('symbol') != self.config.symbol or
+                        not isinstance(params.get('orderId'),str) or not params['orderId'] or
+                        params.get('orderFilter') not in ('Order','tpslOrder','StopOrder')):
+                    raise Halt('Unexpected cancellation parameters')
             # No transfers, withdrawals, leverage or arbitrary order payloads.
-            if (params.get('category') != 'spot' or params.get('symbol') != self.config.symbol
+            elif (params.get('category') != 'spot' or params.get('symbol') != self.config.symbol
                     or params.get('isLeverage') != 0 or params.get('orderFilter') != 'Order'
                     or params.get('orderType') != 'Limit' or params.get('timeInForce') != 'IOC'
                     or params.get('side') not in ('Buy', 'Sell')):
