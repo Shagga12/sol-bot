@@ -61,7 +61,11 @@ python -m compileall -q trader_platform
 
 HTTP and Auth integration tests use an explicitly fake provider; they do **not** prove live Supabase Auth, SQL policies or provider behavior. No existing user password was requested or used. No sign-up emails were sent.
 
-The hosted database test was **not executed**: automatic approval review could not complete because of a usage limit. This was not a security verdict. `schema/verify_rollback.sql` contains the intended database assertions. Run the preparation schema and this test in one explicit transaction on the chosen review database, confirm all assertions, and verify rollback. Do not claim RLS or live Auth verification until it passes. A visual browser review has not been completed.
+The hosted database rollback test **passed on 15 November 2026**. The preparation schema and `schema/verify_rollback.sql` ran in one explicit transaction and returned `ROLLBACK_RLS_AND_COMMISSION_TESTS_PASSED`. It verified tenant profile/wallet isolation, owner-only vetting and audit, rejection of user financial writes and release changes, blocked onboarding, and exact/idempotent high-water commission accrual. The transaction rolled back. A separate query confirmed zero new trader tables/schemas, the original single-owner count and signup trigger preserved, and the old simulation scheduler still inactive.
+
+The real Supabase Auth service was reachable, email sign-in was enabled, email confirmation was required, and a deliberately invalid token was rejected through the actual transport. Successful email/password sign-in and visual browser review are still unverified; no user password was requested and no account was created.
+
+Provider-wide signup is still enabled on the existing Auth project. The preparation server itself refuses registration and financial writes. Before a broader rollout, disable **Allow new users to sign up** in the existing project’s Auth settings, keeping existing-user sign-in available. The connected API does not expose that configuration operation and browser access was unavailable, so this setting was not changed. See `VERIFICATION.md` for the live checks and exact configuration link.
 
 ## Required before opening to traders
 
