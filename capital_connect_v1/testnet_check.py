@@ -32,6 +32,12 @@ def run_testnet_check(directory, runner=subprocess.run):
         print('Testnet check: starting isolated read-only check; no orders enabled', flush=True)
         result = runner(args, env=env, timeout=120, check=False)
         print('Testnet check: ' + ('PASSED' if result.returncode == 0 else 'FAILED'), flush=True)
+        if result.returncode == 0 and os.getenv('CAPITAL_TESTNET_ORDER_TESTS') == 'run':
+            for phase in ('buy','close'):
+                args = [sys.executable,'-m','capital_connect_v1.testnet_exchange',
+                    '--config',str(path),'--directory',str(root),'--phase',phase,'--testnet-orders']
+                trial = runner(args,env=env,timeout=90,check=False)
+                if trial.returncode != 0: return trial.returncode
         return result.returncode
     except (ValueError, TypeError, KeyError, OSError, subprocess.SubprocessError):
         print('Testnet check: setup or transport failure; credentials not logged', flush=True)
