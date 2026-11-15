@@ -219,6 +219,50 @@ if (typeof document !== 'undefined') {
     text('live-draft-status','Settings changed. Validate again before downloading. The running bot has not changed.');
     updateLiveAccount();
   }
+  let chartMarket=null, chartStatus=null;
+  const svgNS='http://www.w3.org/2000/svg';
+  function svgNode(parent,tag,attrs={},label=null) {
+    const node=document.createElementNS(svgNS,tag);
+    for(const [key,value] of Object.entries(attrs)) node.setAttribute(key,String(value));
+    if(label!==null)node.textContent=label;
+    parent.append(node);return node;
+  }
+  function drawChart(id,points,{height=300,levels=[],fills=[],step=false,empty='Waiting for data'}={}) {
+    const root=el(id);root.replaceChildren();
+    if(!points.length){svgNode(root,'text',{x:450,y:height/2,fill:'#a6bac4','text-anchor':'middle','font-size':16},empty);return;}
+    const all=[...points.map(p=>p.value),...levels.map(p=>Number(p.price)),...fills.filter(f=>f.ts>=points[0].ts&&f.ts<=points.at(-1).ts).map(f=>Number(f.price))];
+    let lo=Math.min(...all),hi=Math.max(...all);const pad=Math.max((hi-lo)*.14,Math.abs(hi)*.00005,.01);lo-=pad;hi+=pad;
+    const start=points[0].ts,end=Math.max(points.at(-1).ts,start+1);
+    const x=t=>20+(t-start)/(end-start)*775,y=v=>20+(hi-v)/(hi-lo)*(height-55);
+    for(let i=0;i<4;i++){const value=lo+(hi-lo)*i/3,cy=y(value);svgNode(root,'line',{x1:20,x2:795,y1:cy,y2:cy,stroke:'#263c47'});svgNode(root,'text',{x:810,y:cy+4,fill:'#9fb3bd','font-size':12},money(value));}
+    for(const level of levels){const cy=y(Number(level.price));svgNode(root,'line',{x1:20,x2:795,y1:cy,y2:cy,stroke:level.label==='Stop loss'?'#fa9292':'#d9bd75','stroke-dasharray':'6 5'});svgNode(root,'text',{x:24,y:cy-5,fill:'#d9bd75','font-size':12},`${level.label} ${money(level.price)}`);}
+    let d=`M ${x(points[0].ts)} ${y(points[0].value)}`;
+    for(const p of points.slice(1))d+=step?` H ${x(p.ts)} V ${y(p.value)}`:` L ${x(p.ts)} ${y(p.value)}`;
+    svgNode(root,'path',{d,fill:'none',stroke:'#a4e5ce','stroke-width':2.5});
+    for(const fill of fills){if(fill.ts<start||fill.ts>end)continue;const cx=x(fill.ts),cy=y(Number(fill.price));const marker=svgNode(root,'text',{x:cx,y:cy+5,fill:fill.side==='Buy'?'#a4e5ce':'#ff9292','font-size':21,'text-anchor':'middle'},fill.side==='Buy'?'▲':'▼');svgNode(marker,'title',{},`${fill.side} ${fill.qty} BTC @ ${fill.price}`);}
+    for(const [t,anchor] of [[start,'start'],[end,'end']])svgNode(root,'text',{x:x(t),y:height-9,fill:'#9fb3bd','font-size':12,'text-anchor':anchor},new Date(t*1000).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));
+    root.onpointermove=event=>{const ratio=(event.clientX-root.getBoundingClientRect().left)/root.getBoundingClientRect().width;const ts=start+(ratio*900-20)/775*(end-start);let nearest=points.reduce((a,b)=>Math.abs(a.ts-ts)<Math.abs(b.ts-ts)?a:b);text('chart-hover',`${new Date(nearest.ts*1000).toLocaleString()} · ${id==='price-chart'?'BTC / USDT':'Realized P&L'}: ${money(nearest.value)} USDT`);};
+  }
+  function renderLiveCharts(){
+    const status=chartStatus,real=!!(status?.control_connected&&status.environment==='mainnet'),chart=real?status.chart:null;
+    const market=chartMarket;const fresh=market&&Date.now()/1000-market.fetched_at<90;
+    const points=fresh?market.points.filter(p=>p.ts>=Date.now()/1000-Number(el('chart-window').value)).map(p=>({ts:p.ts,value:Number(p.price)})):[];
+    text('chart-last-price',points.length?money(points.at(-1).value)+' USDT':'—');
+    drawChart('price-chart',points,{levels:chart?.levels||[],fills:chart?.fills||[],empty:'Live market prices unavailable'});
+    const execution=real?status.execution:null;
+    text('chart-realized',`Realized P&L: ${execution?money(execution.realized_pnl_usdt,true)+' USDT':'—'}`);
+    const fills=chart?.fills||[];const now=Date.now()/1000;
+    const pnl=fills.length?fills.map(f=>({ts:f.ts,value:Number(f.pnl)})):[];
+    if(pnl.length)pnl.push({ts:now,value:pnl.at(-1).value});
+    else if(chart&&execution&&Number(execution.realized_pnl_usdt)===0)pnl.push({ts:now-3600,value:0},{ts:now,value:0});
+    drawChart('pnl-chart',pnl,{height:190,step:true,empty:'No verified real-money P&L history available'});
+    text('chart-execution-note',!real?'Real-money journal unavailable or worker report stale. Demo and Testnet trades are excluded.':!chart?'Waiting for chart telemetry from the worker.':`Real-money journal: ${chart.total_fills} reconciled order(s). ${chart.total_fills>100?'Showing the latest 100 with lifetime cumulative P&L.':fills.length?'No simulated trades included.':'No filled orders yet; realized P&L is zero.'} Protective levels appear when a bracket is recorded.`);
+    text('chart-freshness',fresh?`Bybit spot · updated ${new Date(market.fetched_at*1000).toLocaleTimeString()} · ${real?'mainnet '+status.state:'execution status unverified'}`:'Price feed unavailable or stale; retrying every 30 seconds.');
+  }
+  async function loadChartMarket(){try{chartMarket=await requestJSON('/api/market/chart');}catch{chartMarket=null;}renderLiveCharts();}
+  el('chart-window').addEventListener('change',renderLiveCharts);
+  setInterval(()=>{if(!document.hidden)loadChartMarket();},30000);
+  loadChartMarket();
   let latestControlStatus=null;
   el('confirm-real-start').addEventListener('change', () => {
     el('activate-live').disabled=!(latestControlStatus?.can_activate && (latestControlStatus.environment !== 'mainnet' || el('confirm-real-start').checked));
@@ -230,6 +274,7 @@ if (typeof document !== 'undefined') {
       text('live-state', status.control_connected ? `${status.environment}: ${status.state}` : (status.connection_monitor_connected ? 'Connection check online — orders off' : 'Worker not reporting'));
       if (latestControlStatus?.config_digest !== status.config_digest) el('confirm-real-start').checked=false;
       latestControlStatus=status;
+      chartStatus=status; renderLiveCharts();
       badge('ready-activation', !status.control_connected ? 'Not connected' : status.state, status.orders_running ? 'green' : 'amber');
       text('execution-mode-badge', !status.control_connected ? 'STATUS UNKNOWN' : (status.real_trading_active ? 'REAL TRADING ACTIVE' : (status.orders_running ? 'TESTNET ACTIVE' : 'EXECUTION OFF')));
       text('execution-overview-status', `Execution: ${status.environment || 'unreported'} · ${status.state}. Balance cards and Activity below show demo trades. See Trading setup for the execution journal.`);
@@ -243,6 +288,7 @@ if (typeof document !== 'undefined') {
       el('live-blockers').replaceChildren(...blockers.map(value => { const li=document.createElement('li'); li.textContent=String(value); return li; }));
     } catch (error) {
       latestControlStatus=null;
+      chartStatus=null; renderLiveCharts();
       el('activate-live').disabled=true; el('stop-live').disabled=true;
       text('execution-mode-badge','STATUS UNKNOWN');
       text('live-state','Backend check failed');

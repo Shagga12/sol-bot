@@ -22,7 +22,7 @@ from pathlib import Path
 
 DASHBOARD = Path(__file__).resolve().parent / 'dashboard'
 SYMBOLS = ('BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT')
-VERSION = 'owner-control-v4'
+VERSION = 'owner-control-v5-charts'
 from activation_control import ActivationControl
 CONTROL = ActivationControl()
 
@@ -201,6 +201,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path=='/api/status':
             with LOCK:data=json.dumps(REPORT or {'report':None})
             return self.send(data)
+        if self.path=='/api/market/chart':
+            try:
+                from market_chart import market_chart
+                return self.send(json.dumps(market_chart()))
+            except Exception:return self.send(json.dumps({'error':'Market prices unavailable; retrying shortly.'}),502)
         if self.path=='/api/live/status':return self.send(json.dumps(live_readiness()))
         self.send('{}',404)
     def do_POST(self):
@@ -211,7 +216,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send('{}',403)
             try:
                 size=int(self.headers.get('Content-Length','0'))
-                if not 0 < size <= 2000: return self.send('{}',413)
+                if not 0 < size <= 64000: return self.send('{}',413)
                 command=CONTROL.update(json.loads(self.rfile.read(size)))
                 return self.send(json.dumps(command))
             except (ValueError,TypeError): return self.send('{}',400)
@@ -279,5 +284,14 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:REPORT={'received_at':time.time(),'report':report}
             return self.send('{"accepted":true}')
         except (ValueError,TypeError):return self.send('{}',400)
-if __name__=='__main__':ThreadingHTTPServer(('0.0.0.0',int(os.getenv('PORT','10000'))),Handler).serve_forever()
+def warm_market_chart():
+    try:
+        from market_chart import market_chart
+        snapshot=market_chart()
+        print(json.dumps({'market_chart_feed':'READY','points':len(snapshot['points']),'latest_candle':snapshot['points'][-1]['ts']}),flush=True)
+    except Exception:print('Market chart feed unavailable; browser requests will retry',flush=True)
+
+if __name__=='__main__':
+    threading.Thread(target=warm_market_chart,daemon=True).start()
+    ThreadingHTTPServer(('0.0.0.0',int(os.getenv('PORT','10000'))),Handler).serve_forever()
 

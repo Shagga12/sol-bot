@@ -13,7 +13,7 @@ class ActivationControl:
 
     def update(self, report):
         required = {'state','orders_enabled','worker_id','config_digest','environment','ready'}
-        if not isinstance(report, dict) or not required <= set(report) or set(report)-required-{'limits','execution'}:
+        if not isinstance(report, dict) or not required <= set(report) or set(report)-required-{'limits','execution','chart'}:
             raise ValueError('Invalid worker status')
         if report['state'] not in ('STOPPED','STARTING','RUNNING','HALTED'):
             raise ValueError('Invalid worker state')
@@ -50,6 +50,23 @@ class ActivationControl:
                 if not number.is_finite() or (key!='realized_pnl_usdt' and number<0):raise ValueError('Invalid execution number')
             if any(type(execution[key]) is not int or not 0<=execution[key]<=500 for key in ('pending_entries','active_protections')):
                 raise ValueError('Invalid execution count')
+        chart=report.get('chart')
+        if chart is not None:
+            if not isinstance(chart,dict) or set(chart)!={'fills','levels','total_fills'}:raise ValueError('Invalid chart')
+            if type(chart['total_fills']) is not int or chart['total_fills']<0:raise ValueError('Invalid fill count')
+            if not isinstance(chart['fills'],list) or len(chart['fills'])>100 or not isinstance(chart['levels'],list) or len(chart['levels'])>3:raise ValueError('Invalid chart length')
+            for row in chart['fills']:
+                if not isinstance(row,dict) or set(row)!={'ts','side','price','qty','pnl'} or row['side'] not in ('Buy','Sell'):raise ValueError('Invalid fill')
+                if type(row['ts']) not in (int,float) or not 0<row['ts']<=self.clock()+60:raise ValueError('Invalid fill time')
+                for key in ('price','qty','pnl'):
+                    try:n=Decimal(row[key])
+                    except (InvalidOperation,TypeError):raise ValueError('Invalid chart number') from None
+                    if not n.is_finite() or (key!='pnl' and n<=0):raise ValueError('Invalid chart number')
+            for row in chart['levels']:
+                if not isinstance(row,dict) or set(row)!={'label','price'} or row['label'] not in ('Take profit','Stop loss','Entry cost / BTC'):raise ValueError('Invalid level')
+                try:n=Decimal(row['price'])
+                except (InvalidOperation,TypeError):raise ValueError('Invalid level') from None
+                if not n.is_finite() or n<=0:raise ValueError('Invalid level')
         with self.lock:
             self.report = {**report, 'received_at':self.clock()}
             command = self.desired
@@ -90,5 +107,6 @@ class ActivationControl:
                 'config_digest':r['config_digest'] if fresh else None,
                 'limits':r.get('limits') if fresh else None,
                 'execution':r.get('execution') if fresh else None,
+                'chart':r.get('chart') if fresh else None,
                 'environment':r['environment'] if fresh else None,
                 'requested':self.desired['action'] if self.desired else 'STOP'}
