@@ -219,17 +219,32 @@ if (typeof document !== 'undefined') {
     text('live-draft-status','Settings changed. Validate again before downloading. The running bot has not changed.');
     updateLiveAccount();
   }
+  let latestControlStatus=null;
+  el('confirm-real-start').addEventListener('change', () => {
+    el('activate-live').disabled=!(latestControlStatus?.can_activate && (latestControlStatus.environment !== 'mainnet' || el('confirm-real-start').checked));
+  });
   async function loadLiveStatus() {
     try {
       const status = await requestJSON('/api/live/status');
       // Only an authenticated, fresh worker report can unlock Start.
       text('live-state', status.control_connected ? `${status.environment}: ${status.state}` : (status.connection_monitor_connected ? 'Connection check online — orders off' : 'Worker not reporting'));
-      el('activate-live').disabled = !status.can_activate;
+      if (latestControlStatus?.config_digest !== status.config_digest) el('confirm-real-start').checked=false;
+      latestControlStatus=status;
+      badge('ready-activation', !status.control_connected ? 'Not connected' : status.state, status.orders_running ? 'green' : 'amber');
+      text('execution-mode-badge', !status.control_connected ? 'STATUS UNKNOWN' : (status.real_trading_active ? 'REAL TRADING ACTIVE' : (status.orders_running ? 'TESTNET ACTIVE' : 'EXECUTION OFF')));
+      text('execution-overview-status', `Execution: ${status.environment || 'unreported'} · ${status.state}. Balance cards and Activity below show demo trades. See Trading setup for the execution journal.`);
+      const execution=status.execution;
+      text('execution-journal-summary', execution ? `Bot-owned quantity: ${execution.owned_qty} · Cost: ${money(execution.cost_usdt)} USDT · Realized execution P&L: ${money(execution.realized_pnl_usdt, true)} USDT · Pending entries: ${execution.pending_entries} · Active protective orders: ${execution.active_protections}.` : 'No execution journal reported yet. This is not your exchange wallet balance.');
+      el('activate-live').disabled = !(status.can_activate && (status.environment !== 'mainnet' || el('confirm-real-start').checked));
+      const limits=status.limits;
+      text('saved-execution-limits', limits ? `Saved worker: ${limits.symbol} · ${limits.capital_usdt} USDT allocation · ${limits.order_usdt} USDT order ceiling · ${limits.daily_loss_usdt} USDT daily realized-loss ceiling · ${Number(limits.stop_loss_fraction)*100}% estimated stop trigger · ${Number(limits.take_profit_fraction)*100}% estimated profit trigger.` : 'Saved execution limits have not been reported.');
       el('stop-live').disabled = !status.control_connected;
       const blockers = Array.isArray(status.blockers) ? status.blockers : ['Execution readiness could not be established.'];
       el('live-blockers').replaceChildren(...blockers.map(value => { const li=document.createElement('li'); li.textContent=String(value); return li; }));
     } catch (error) {
+      latestControlStatus=null;
       el('activate-live').disabled=true; el('stop-live').disabled=true;
+      text('execution-mode-badge','STATUS UNKNOWN');
       text('live-state','Backend check failed');
       const li=document.createElement('li'); li.textContent=error.message; el('live-blockers').replaceChildren(li);
     }
@@ -237,7 +252,7 @@ if (typeof document !== 'undefined') {
   async function sendControl(action) {
     el('activate-live').disabled=true; el('stop-live').disabled=true;
     try {
-      await requestJSON(`/api/live/${action}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+      await requestJSON(`/api/live/${action}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(action==='start' ? {config_digest:latestControlStatus?.config_digest, acknowledge_real_money:el('confirm-real-start').checked} : {})});
       text('live-control-result', `${action === 'start' ? 'Start' : 'Stop'} requested. Awaiting worker acknowledgement.`);
     } catch(error) { text('live-control-result', error.message); }
     await loadLiveStatus();

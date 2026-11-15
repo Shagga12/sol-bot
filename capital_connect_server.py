@@ -217,8 +217,10 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 size=int(self.headers.get('Content-Length','0'))
                 if not 0 < size <= 1000: return self.send('{}',413)
-                if json.loads(self.rfile.read(size)) != {}: raise ValueError('Unexpected control fields')
-                return self.send(json.dumps(CONTROL.command('START' if self.path.endswith('/start') else 'STOP')),202)
+                data=json.loads(self.rfile.read(size))
+                if not isinstance(data,dict) or set(data)-{'acknowledge_real_money','config_digest'}: raise ValueError('Unexpected control fields')
+                return self.send(json.dumps(CONTROL.command('START' if self.path.endswith('/start') else 'STOP',
+                    acknowledge_real_money=data.get('acknowledge_real_money',False), config_digest=data.get('config_digest'))),202)
             except (ValueError,TypeError) as error: return self.send(json.dumps({'error':str(error)}),409)
         if self.path == '/api/live/report':
             token = os.getenv('CAPITAL_LIVE_REPORT_TOKEN', '')

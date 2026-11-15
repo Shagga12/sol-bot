@@ -35,3 +35,21 @@ class ControlTests(unittest.TestCase):
         for bad in ({**self.report,'ready':'true'},{**self.report,'state':'STOPPED','orders_enabled':True},{**self.report,'config_digest':'invalid'}):
             with self.assertRaises(ValueError):self.control.update(bad)
         self.assertFalse(self.control.status()['can_activate'])
+
+class MainnetConfirmationTests(unittest.TestCase):
+    def test_mainnet_start_requires_acknowledgement_of_current_saved_limits(self):
+        c=ActivationControl(lambda:100)
+        report={'state':'STOPPED','orders_enabled':False,'worker_id':'a'*64,'config_digest':'b'*64,'environment':'mainnet','ready':True,
+                'limits':{'symbol':'BTCUSDT','capital_usdt':'56','order_usdt':'15','daily_loss_usdt':'10',
+                          'stop_loss_fraction':'.01','take_profit_fraction':'.04','slippage_percent':'.10'},'execution':None}
+        c.update(report)
+        for kwargs in ({},{'acknowledge_real_money':True},{'acknowledge_real_money':'true','config_digest':'b'*64},
+                       {'acknowledge_real_money':True,'config_digest':'c'*64}):
+            with self.assertRaises(ValueError):c.command('START',**kwargs)
+        c.command('START',acknowledge_real_money=True,config_digest='b'*64)
+        self.assertEqual(c.update(report)['action'],'START')
+    def test_secret_fields_cannot_be_smuggled_into_saved_limits(self):
+        c=ActivationControl()
+        with self.assertRaises(ValueError):
+            c.update({'state':'STOPPED','orders_enabled':False,'worker_id':'a'*64,'config_digest':'b'*64,
+                      'environment':'mainnet','ready':True,'limits':{'apiSecret':'must-not-be-saved'}})
