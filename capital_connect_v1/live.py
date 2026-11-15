@@ -149,10 +149,13 @@ class Bybit:
         if info.get('readOnly') != 0 or 'SpotTrade' not in permissions.get('Spot', []):
             raise Halt('A spot-trading API key is required')
         self.non_spot_permissions = {k:v for k,v in permissions.items() if k != 'Spot' and v}
-        # A read-only diagnostic may inspect funds without approving a key for
-        # execution. Normal/run transports retain the strict permission gate.
-        if self.non_spot_permissions and not self.inspection_only:
-            raise Halt('Non-spot permissions enabled: ' + json.dumps({k: v for k, v in permissions.items() if k != 'Spot' and v}, sort_keys=True))
+        # Bybit labels this exact flag as Unified-account permission. Actual
+        # ContractTrade/Options permissions remain forbidden, as do transfers.
+        unexpected = {k:v for k,v in self.non_spot_permissions.items()
+                      if not (k == 'Derivatives' and v == ['DerivativesTrade'])}
+        self.permissions_compatible = not unexpected
+        if unexpected and not self.inspection_only:
+            raise Halt('Non-spot permissions enabled: ' + json.dumps(unexpected, sort_keys=True))
         if not info.get('userID'):
             raise Halt('Account identity not returned')
         return str(info['userID'])
@@ -443,8 +446,10 @@ def main(argv=None):
                     'bot_owned_qty': str(qty), 'cost_usdt': str(cost), 'realized_pnl_usdt': str(journal.pnl()),
                     'pending_orders': len(journal.pending()), 'orders_submitted_by_this_command': 0}))
                 return 0
-            worker.reconcile(int(time.time()))
+            reconciled = worker.reconcile(int(time.time()))
             if args.command == 'check':
+                if not reconciled or journal.pending():
+                    raise Halt('Unresolved order; connection check cannot approve readiness')
                 rules, bid, ask, fee = worker.snapshot()
                 free = api.available('Buy')
                 _, position_cost = journal.position()
@@ -456,6 +461,7 @@ def main(argv=None):
                 print(json.dumps({'environment': config.environment, 'symbol': config.symbol,
                     'connection_verified': True, 'available_spot_usdt': str(free),
                     'non_spot_permissions': getattr(api, 'non_spot_permissions', {}),
+                    'spot_permission_check_passed': getattr(api, 'permissions_compatible', False),
                     'execution_approved': False,
                     'order_budget_ceiling_usdt': str(budget),
                     'buy_preview_qty': planned['qty'], 'pending_orders': len(journal.pending()),

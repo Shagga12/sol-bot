@@ -261,6 +261,35 @@ class LiveTests(unittest.TestCase):
 
 
 class TransportTests(unittest.TestCase):
+    def test_unresolved_order_cannot_pass_connection_readiness(self):
+        from dataclasses import asdict
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'config.json'
+            path.write_text(json.dumps(asdict(config())))
+            fake = Fake()
+            fake.identity = lambda: 'account-1'
+            with patch('capital_connect_v1.live.Bybit', return_value=fake), patch('capital_connect_v1.live.Worker.reconcile', return_value=False), patch('sys.stdout', new_callable=io.StringIO) as output:
+                result = main(['check', '--config', str(path), '--db', str(Path(directory)/'db')])
+            self.assertEqual(result, 1)
+            self.assertIn('Unresolved order', output.getvalue())
+            self.assertEqual(fake.writes, [])
+
+    def test_unified_flag_does_not_replace_spot_permission(self):
+        for permissions, allowed in [
+            ({'Spot':['SpotTrade'],'Derivatives':['DerivativesTrade']}, True),
+            ({'Derivatives':['DerivativesTrade']}, False),
+            ({'Spot':['SpotTrade'],'ContractTrade':['Order']}, False),
+            ({'Spot':['SpotTrade'],'Options':['OptionsTrade']}, False),
+            ({'Spot':['SpotTrade'],'Wallet':['AccountTransfer']}, False),
+            ({'Spot':['SpotTrade'],'Derivatives':['unknown']}, False),
+        ]:
+            api, _ = self.api({'readOnly':0,'userID':1,'permissions':permissions})
+            with patch('time.time', return_value=NOW):
+                if allowed:
+                    self.assertEqual(api.identity(), '1')
+                else:
+                    with self.assertRaises(Halt): api.identity()
+
     def test_inspection_can_report_unified_permission_but_cannot_write(self):
         result = {'readOnly':0,'userID':1,'permissions':{'Spot':['SpotTrade'],'Derivatives':['DerivativesTrade']}}
         api, _ = self.api(result, inspection_only=True)
