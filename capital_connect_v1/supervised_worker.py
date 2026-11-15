@@ -53,10 +53,21 @@ class Supervisor:
             if binding['config']!=asdict(self.config):return None
             position=db.execute('SELECT qty,cost FROM live_position WHERE id=1').fetchone()
             pnl=sum((Decimal(r[0]) for r in db.execute('SELECT pnl FROM live_orders WHERE terminal=1')),Decimal(0))
+            pending_entries=db.execute("SELECT COUNT(*) FROM live_orders WHERE terminal=0 AND side='Buy'").fetchone()[0]
+            active_protections=db.execute("SELECT COUNT(*) FROM live_protection WHERE state='ACTIVE'").fetchone()[0]
+            pending_protective_exits=db.execute("""
+                SELECT COUNT(*) FROM live_orders o
+                JOIN live_protection p ON p.child_link=o.link
+                WHERE o.terminal=0 AND o.side='Sell' AND p.state='ACTIVE'
+            """).fetchone()[0]
             return {'owned_qty':position['qty'],'cost_usdt':position['cost'],
                     'realized_pnl_usdt':str(pnl),
-                    'pending_entries':db.execute("SELECT COUNT(*) FROM live_orders WHERE terminal=0 AND side='Buy'").fetchone()[0],
-                    'active_protections':db.execute("SELECT COUNT(*) FROM live_protection WHERE state='ACTIVE'").fetchone()[0]}
+                    'pending_entries':pending_entries,
+                    'active_protections':active_protections,
+                    'pending_protective_exits':pending_protective_exits,
+                    'position_status':('ENTRY_PENDING' if pending_entries else
+                        'PROTECTED_POSITION_OPEN' if active_protections and pending_protective_exits else
+                        'PROTECTION_REVIEW_REQUIRED' if active_protections else 'NO_ACTIVE_PROTECTION')}
         except (sqlite3.Error,ValueError,KeyError,TypeError,IndexError):
             return None
         finally:
