@@ -1,0 +1,18 @@
+LOCAL UNIT TESTS ONLY: exchange transports are mocked; no real Bybit orders were submitted.
+
+{"state": "CHECK_PASSED", "orders_enabled": false, "dashboard_control_connected": false}
+Testnet check: separate credentials not configured
+{"state": "SETUP_REQUIRED", "orders_enabled": false, "required": ["saved trading configuration", "Bybit API credentials in Render"]}
+Testnet check: starting isolated read-only check; no orders enabled
+Testnet check: PASSED
+Testnet check: separate credentials not configured
+Testnet check: starting isolated read-only check; no orders enabled
+Testnet check: PASSED
+Testnet buy accepted; exiting process before fill reconciliation; journal preserved
+{"testnet_exchange_roundtrip": "PASSED", "restart_reconciliation": "PASSED", "pending_orders": 0, "remaining_test_btc": "8.34E-7", "retained_dust_cost_usdt": "0.050141015015015015015015015", "testnet_realized_pnl_usdt": "-0.039775084984984984984984985", "mainnet_orders_submitted": 0, "profitability_verified": false, "remaining_validation": ["profit/loss trigger paths against exchange", "Start/Stop with running exchange worker"]}
+Testnet exchange tests: already completed; no new orders
+Testnet exchange tests: already completed; no new orders
+----------------------------------------------------------------------
+Ran 114 tests in 0.140s
+
+OK
