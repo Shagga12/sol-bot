@@ -40,7 +40,7 @@ class ActivationControl:
                 if not number.is_finite() or number<=0: raise ValueError('Invalid execution limit')
         execution=report.get('execution')
         if execution is not None:
-            keys={'owned_qty','cost_usdt','realized_pnl_usdt','pending_entries','active_protections'}
+            keys={'owned_qty','cost_usdt','realized_pnl_usdt','pending_entries','active_protections','pending_protective_exits','position_status'}
             if not isinstance(execution,dict) or set(execution)!=keys: raise ValueError('Invalid execution summary')
             for key in ('owned_qty','cost_usdt','realized_pnl_usdt'):
                 value=execution[key]
@@ -48,8 +48,10 @@ class ActivationControl:
                 try:number=Decimal(value)
                 except InvalidOperation:raise ValueError('Invalid execution number') from None
                 if not number.is_finite() or (key!='realized_pnl_usdt' and number<0):raise ValueError('Invalid execution number')
-            if any(type(execution[key]) is not int or not 0<=execution[key]<=500 for key in ('pending_entries','active_protections')):
+            if any(type(execution[key]) is not int or not 0<=execution[key]<=500 for key in ('pending_entries','active_protections','pending_protective_exits')):
                 raise ValueError('Invalid execution count')
+            if execution['position_status'] not in ('ENTRY_PENDING','PROTECTED_POSITION_OPEN','PROTECTION_REVIEW_REQUIRED','NO_ACTIVE_PROTECTION'):
+                raise ValueError('Invalid position status')
         chart=report.get('chart')
         if chart is not None:
             if not isinstance(chart,dict) or set(chart)!={'fills','levels','total_fills'}:raise ValueError('Invalid chart')
