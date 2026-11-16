@@ -1,0 +1,118 @@
+{
+  "commit": "1841934c9bddc1d1ad0fc73fc931abc77c50697a",
+  "source": "https://www.bitstamp.net/api/v2/ohlc/btcusd/",
+  "period": "2025-01-01 through 2025-12-31 UTC",
+  "candles": 35040,
+  "missing_candles": 0,
+  "configuration": {
+    "fast": 10,
+    "slow": 30,
+    "max_volatility": 0.04,
+    "trend_spread_threshold": 0.002
+  },
+  "full_year": {
+    "0.001": {
+      "same_close": {
+        "net_return_pct": -26.911433401669726,
+        "max_drawdown_pct": 35.3504762483578,
+        "position_changes": 638,
+        "completed_round_trips_including_terminal_liquidation": 319,
+        "fees_usdt_per_1000": 576.6706521654726,
+        "buy_hold_net_pct": -6.643400335703209,
+        "marked_before_terminal_fee_usdt": 730.8856659833027
+      },
+      "next_open": {
+        "net_return_pct": -27.42472997081191,
+        "max_drawdown_pct": 35.63656440658773,
+        "position_changes": 638,
+        "completed_round_trips_including_terminal_liquidation": 319,
+        "fees_usdt_per_1000": 573.7761876470876,
+        "buy_hold_net_pct": -6.643400335703209,
+        "marked_before_terminal_fee_usdt": 725.7527002918808
+      }
+    },
+    "0.002": {
+      "same_close": {
+        "net_return_pct": -61.42079287649735,
+        "max_drawdown_pct": 64.51191869296518,
+        "position_changes": 638,
+        "completed_round_trips_including_terminal_liquidation": 319,
+        "fees_usdt_per_1000": 864.9737764493985,
+        "buy_hold_net_pct": -6.830206891537937,
+        "marked_before_terminal_fee_usdt": 385.79207123502647
+      },
+      "next_open": {
+        "net_return_pct": -61.691732307633295,
+        "max_drawdown_pct": 64.66163095910233,
+        "position_changes": 638,
+        "completed_round_trips_including_terminal_liquidation": 319,
+        "fees_usdt_per_1000": 861.0048016386052,
+        "buy_hold_net_pct": -6.830206891537937,
+        "marked_before_terminal_fee_usdt": 383.08267692366707
+      }
+    },
+    "0.003": {
+      "same_close": {
+        "net_return_pct": -79.64931840957078,
+        "max_drawdown_pct": 80.53348911107032,
+        "position_changes": 638,
+        "completed_round_trips_including_terminal_liquidation": 319,
+        "fees_usdt_per_1000": 1004.7261728256893,
+        "buy_hold_net_pct": -7.016826360186023,
+        "marked_before_terminal_fee_usdt": 203.5068159042922
+      },
+      "next_open": {
+        "net_return_pct": -79.7922400117614,
+        "max_drawdown_pct": 80.61561176610327,
+        "position_changes": 638,
+        "completed_round_trips_including_terminal_liquidation": 319,
+        "fees_usdt_per_1000": 1000.5332725076696,
+        "buy_hold_net_pct": -7.016826360186023,
+        "marked_before_terminal_fee_usdt": 202.07759988238607
+      }
+    }
+  },
+  "quarterly_next_open_20bps": {
+    "1": {
+      "candles": 8640,
+      "net_return_pct": -24.854508239703897,
+      "max_drawdown_pct": 31.716603426256423,
+      "position_changes": 174,
+      "completed_round_trips_including_terminal_liquidation": 87,
+      "fees_usdt_per_1000": 313.8779550843444,
+      "buy_hold_net_pct": -12.109714917410585,
+      "marked_before_terminal_fee_usdt": 751.454917602961
+    },
+    "2": {
+      "candles": 8736,
+      "net_return_pct": -17.286566611008205,
+      "max_drawdown_pct": 26.907159349813963,
+      "position_changes": 162,
+      "completed_round_trips_including_terminal_liquidation": 81,
+      "fees_usdt_per_1000": 307.6825208510196,
+      "buy_hold_net_pct": 27.79312940359615,
+      "marked_before_terminal_fee_usdt": 827.134333889918
+    },
+    "3": {
+      "candles": 8832,
+      "net_return_pct": -14.944400886808307,
+      "max_drawdown_pct": 26.44833634767429,
+      "position_changes": 127,
+      "completed_round_trips_including_terminal_liquidation": 64,
+      "fees_usdt_per_1000": 247.3255695055004,
+      "buy_hold_net_pct": 6.217519105451608,
+      "marked_before_terminal_fee_usdt": 852.2605121562294
+    },
+    "4": {
+      "candles": 8832,
+      "net_return_pct": -29.456305081115453,
+      "max_drawdown_pct": 33.288880685595515,
+      "position_changes": 176,
+      "completed_round_trips_including_terminal_liquidation": 88,
+      "fees_usdt_per_1000": 299.27719607725487,
+      "buy_hold_net_pct": -23.94078568648157,
+      "marked_before_terminal_fee_usdt": 705.4369491888455
+    }
+  },
+  "actual_module_vs_independent_model_3000_real_candles": "PASS"
+}
