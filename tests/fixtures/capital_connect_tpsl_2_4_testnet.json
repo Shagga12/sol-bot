@@ -1,0 +1,11 @@
+{
+  "purpose": "test-only protective order validation; NOT a live deployment configuration",
+  "environment": "testnet",
+  "symbol": "BTCUSDT",
+  "capital_usdt": "100",
+  "order_usdt": "15",
+  "daily_loss_usdt": "2",
+  "stop_loss_fraction": "0.02",
+  "take_profit_fraction": "0.04",
+  "slippage_percent": "0.50"
+}
