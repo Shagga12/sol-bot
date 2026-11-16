@@ -63,5 +63,7 @@ class ExecutionSummaryTests(unittest.TestCase):
                 self.assertEqual(summary['owned_qty'],'.0001')
                 self.assertEqual(summary['cost_usdt'],'6')
                 self.assertEqual(summary['realized_pnl_usdt'],'0')
-                self.assertEqual(set(summary),{'owned_qty','cost_usdt','realized_pnl_usdt','pending_entries','active_protections'})
+                self.assertEqual(set(summary),{'owned_qty','cost_usdt','realized_pnl_usdt','pending_entries','active_protections','pending_protective_exits','position_status'})
+                self.assertEqual(summary['pending_protective_exits'],0)
+                self.assertEqual(summary['position_status'],'NO_ACTIVE_PROTECTION')
             finally:ledger.db.close()
