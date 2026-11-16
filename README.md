@@ -1,5 +1,10 @@
 # Capital Connect
 
+An isolated personal spot execution candidate is now available in
+`capital_connect_v1/live.py`. Read [LIVE_REVIEW.md](LIVE_REVIEW.md) before evaluating
+it. It has offline tests only, is not deployed, and is not connected to the demo
+worker or dashboard. Mainnet execution has not been verified or activated.
+
 The isolated `capital-connect-ai-quant-v1-clean` branch contains the new demo engine.
 The legacy `app.py` is retained for comparison only and must not be used as the new
 worker entry point. It contains real-order code; this demo worker does not import it.

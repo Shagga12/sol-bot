@@ -16,7 +16,7 @@ class Decision:
     budget_usdt: Decimal = D("0")
 
 def evaluate(closes, available_usdt, daily_realized_pnl_usdt, start_equity_usdt,
-             spread_pct, has_open_position=False):
+             spread_pct, has_open_position=False, daily_loss_limit_usdt=None):
     """Inputs must come from verified market/account snapshots; no exchange writes."""
     values = [D(str(x)) for x in closes]
     cash = D(str(available_usdt))
@@ -29,7 +29,10 @@ def evaluate(closes, available_usdt, daily_realized_pnl_usdt, start_equity_usdt,
         return Decision("WAIT", "warming_up_price_history")
     if any(not v.is_finite() for v in (cash, pnl, equity, spread)) or cash < 0 or equity <= 0 or spread < 0:
         return Decision("WAIT", "invalid_account_or_spread_data")
-    if pnl <= -(equity * MAX_DAILY_LOSS_PCT):
+    loss_limit = equity * MAX_DAILY_LOSS_PCT if daily_loss_limit_usdt is None else D(str(daily_loss_limit_usdt))
+    if not loss_limit.is_finite() or loss_limit <= 0:
+        return Decision("WAIT", "invalid_daily_loss_limit")
+    if pnl <= -loss_limit:
         return Decision("WAIT", "daily_loss_limit")
     if spread > MAX_SPREAD_PCT:
         return Decision("WAIT", "spread_too_wide")

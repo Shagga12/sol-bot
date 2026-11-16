@@ -29,3 +29,10 @@ class StrategyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ExplicitLiveLimitTests(unittest.TestCase):
+    def test_explicit_live_daily_limit_overrides_demo_percentage_only_when_supplied(self):
+        closes=list(range(100,130))
+        self.assertEqual(evaluate(closes,56,-2,56,'.001').reason,'daily_loss_limit')
+        self.assertEqual(evaluate(closes,56,-2,56,'.001',daily_loss_limit_usdt='10').action,'DEMO_BUY')
+        self.assertEqual(evaluate(closes,56,-10,56,'.001',daily_loss_limit_usdt='10').reason,'daily_loss_limit')
