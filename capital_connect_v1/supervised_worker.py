@@ -12,6 +12,7 @@ import sqlite3
 from decimal import Decimal
 from dataclasses import asdict
 from urllib.request import Request, build_opener
+from urllib.error import HTTPError, URLError
 from .live import Config, NoRedirect
 from .execution_charts import chart_snapshot
 
@@ -126,11 +127,20 @@ def supervise(stop, config_path, directory):
                     command = json.load(response)
                 supervisor.apply(command)
                 print('Execution control status delivered; state='+supervisor.state, flush=True)
-            except Exception:
+            except Exception as error:
                 supervisor.stop()
                 supervisor.state='HALTED'
                 supervisor.ready=False
-                print('Execution control unavailable; worker halted; no automatic restart', flush=True)
+                # Log only the error category/status, never credentials or response bodies.
+                if isinstance(error, HTTPError):
+                    failure = 'http_' + str(error.code)
+                elif isinstance(error, URLError):
+                    failure = 'network_error'
+                elif isinstance(error, ValueError) and not token:
+                    failure = 'missing_control_token'
+                else:
+                    failure = type(error).__name__
+                print('Execution control unavailable; worker halted; no automatic restart; category=' + failure, flush=True)
             if stop.wait(5): break
     finally:
         supervisor.stop()
