@@ -14,6 +14,17 @@ class QuantBacktestTests(unittest.TestCase):
         self.assertGreater(result.fees_usdt, 0)
         self.assertGreater(result.ending_usdt, 1000.0)
 
+    def test_execution_costs_reduce_net_returns(self):
+        prices = [100.0 + i for i in range(50)]
+        ideal = backtest(prices, spread_rate=0, slippage_rate=0)
+        realistic = backtest(prices, spread_rate=0.001, slippage_rate=0.002)
+        self.assertLess(realistic.ending_usdt, ideal.ending_usdt)
+        self.assertGreater(realistic.execution_costs_usdt, 0)
+
+    def test_invalid_execution_costs_rejected(self):
+        with self.assertRaises(ValueError):
+            backtest([100.0] * 40, slippage_rate=-0.01)
+
     def test_invalid_data_rejected(self):
         with self.assertRaises(ValueError):
             backtest([100.0] * 39 + [float("nan")])
