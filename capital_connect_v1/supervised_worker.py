@@ -92,6 +92,10 @@ class Supervisor:
                 self.sequence = max(self.sequence, command['sequence'])
             self.stop()
             return
+        # Once halted, ignore stale START requests without relaunching or
+        # repeatedly raising errors. A fresh, validated deployment is required.
+        if self.state == 'HALTED' and command.get('action') == 'START':
+            return
         if (command.get('action') != 'START' or not self.ready or self.state == 'HALTED' or
             command.get('worker_id') != self.worker_id or command.get('config_digest') != self.digest):
             raise ValueError('Start is not authorized for this validated worker/configuration')
