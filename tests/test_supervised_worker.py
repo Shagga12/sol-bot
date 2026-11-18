@@ -39,7 +39,8 @@ class SupervisorTests(unittest.TestCase):
         self.s.ready=True;self.s.apply(self.command())
         self.factory.return_value.poll.return_value=1
         self.assertEqual(self.s.report()['state'],'HALTED')
-        with self.assertRaises(ValueError):self.s.apply(self.command(2))
+        self.s.apply(self.command(2))  # Stale START is ignored after a halt.
+        self.assertEqual(self.s.state,'HALTED')
         self.assertEqual(self.factory.call_count,1)
     def test_matching_release_is_bound_to_exact_configuration(self):
         good=Supervisor(self.path,self.tmp.name,self.s.digest,self.factory)
