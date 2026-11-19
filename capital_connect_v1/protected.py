@@ -8,14 +8,26 @@ from .protection import attach_protection
 
 
 def list_open_orders(api,symbol):
-    rows=[];cursor='';seen=set()
-    while True:
-        page=api.request('/v5/order/realtime',{'category':'spot','symbol':symbol,'limit':50,
-                         **({'cursor':cursor} if cursor else {})})
-        rows.extend(page.get('list',[]));cursor=page.get('nextPageCursor')
-        if not cursor:return rows
-        if cursor in seen or len(rows)>1000:raise Halt('Open-order pagination incomplete')
-        seen.add(cursor)
+    # Bybit separates ordinary spot orders from exchange-held TP/SL and
+    # conditional orders. A default realtime query does not cover all three.
+    rows=[];ids=set()
+    for order_filter in ('Order','tpslOrder','StopOrder'):
+        cursor='';seen=set()
+        while True:
+            page=api.request('/v5/order/realtime',{'category':'spot','symbol':symbol,
+                'orderFilter':order_filter,'limit':50,
+                **({'cursor':cursor} if cursor else {})})
+            for order in page.get('list',[]):
+                identity=order.get('orderId')
+                if not identity:raise Halt('Open order lacks exchange identity')
+                if identity not in ids:
+                    ids.add(identity);rows.append(order)
+            cursor=page.get('nextPageCursor')
+            if not cursor:break
+            if cursor in seen or len(rows)>1000:
+                raise Halt('Open-order pagination incomplete')
+            seen.add(cursor)
+    return rows
 
 
 class ProtectedJournal(Journal):
