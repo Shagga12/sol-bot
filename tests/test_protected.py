@@ -25,7 +25,7 @@ class BracketExchange(Fake):
                         'cumExecQty':'0','cumExecValue':'0'}
             return {'orderId':'entry-id'}
         if endpoint.endswith('/realtime') and 'limit' in params:
-            return {'list':[self.child] if self.child and self.child['orderStatus']=='Untriggered' else []}
+            return {'list':[self.child] if self.child and self.child['orderStatus']=='Untriggered' and params.get('orderFilter')=='tpslOrder' else []}
         if endpoint.endswith('/realtime') or endpoint.endswith('/history'):
             return {'list':[self.child if params.get('orderId')=='exit-id' else self.order]}
         if endpoint.endswith('/list'):
