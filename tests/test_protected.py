@@ -9,7 +9,7 @@ from capital_connect_v1.protected import ProtectedJournal, ProtectedWorker
 
 class BracketExchange(Fake):
     def __init__(self):
-        super().__init__();self.child=None;self.buy_fills=[];self.child_fills=[]
+        super().__init__();self.child=None;self.buy_fills=[];self.child_fills=[];self.child_filter='tpslOrder'
     def request(self,endpoint,params=None,write=False):
         self.calls.append((endpoint,params))
         if write:
@@ -25,7 +25,7 @@ class BracketExchange(Fake):
                         'cumExecQty':'0','cumExecValue':'0'}
             return {'orderId':'entry-id'}
         if endpoint.endswith('/realtime') and 'limit' in params:
-            return {'list':[self.child] if self.child and self.child['orderStatus']=='Untriggered' and params.get('orderFilter')=='tpslOrder' else []}
+            return {'list':[self.child] if self.child and self.child['orderStatus']=='Untriggered' and params.get('orderFilter')==self.child_filter else []}
         if endpoint.endswith('/realtime') or endpoint.endswith('/history'):
             return {'list':[self.child if params.get('orderId')=='exit-id' else self.order]}
         if endpoint.endswith('/list'):
@@ -79,6 +79,7 @@ class ProtectedWorkerTests(unittest.TestCase):
         self.assertEqual(len(self.api.writes),1)
 
     def test_protection_filter_is_persisted_from_exchange_response(self):
+        self.api.child_filter='StopOrder'
         self.enter()
         original=self.api.request
         def filtered(endpoint,params=None,write=False):
