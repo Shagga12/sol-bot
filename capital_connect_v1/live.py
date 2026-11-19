@@ -299,6 +299,7 @@ class Worker:
             stored = json.loads(row['payload'])
             exchange_id = stored.get('exchangeOrderId')
             params = {'category': 'spot', 'symbol': self.c.symbol,
+                      **({'orderFilter':stored['orderFilter']} if stored.get('orderFilter') else {}),
                       **({'orderId':exchange_id} if exchange_id else {'orderLinkId':row['link']})}
             rows = self.api.request('/v5/order/realtime', params).get('list', [])
             if not rows:
