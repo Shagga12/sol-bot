@@ -15,3 +15,22 @@ class ConnectionWorkerTests(unittest.TestCase):
             self.assertEqual(args[0],'check')
             self.assertNotIn('--enable-orders',args)
             self.assertNotIn('--acknowledge-real-money',args)
+
+    def test_unvalidated_start_remains_stopped(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from capital_connect_v1.supervised_worker import Supervisor
+        config = {'environment':'testnet','symbol':'BTCUSDT','capital_usdt':'50',
+                  'order_usdt':'15','daily_loss_usdt':'10',
+                  'stop_loss_fraction':'0.01','take_profit_fraction':'0.04',
+                  'slippage_percent':'0.5'}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'config.json'
+            path.write_text(json.dumps(config))
+            worker = Supervisor(str(path), directory, '', popen=MagicMock())
+            worker.apply({'action':'START','worker_id':worker.worker_id,
+                          'config_digest':worker.digest,'sequence':1})
+            self.assertEqual(worker.state, 'STOPPED')
+            self.assertIsNone(worker.child)
+            self.assertFalse(worker.ready)
