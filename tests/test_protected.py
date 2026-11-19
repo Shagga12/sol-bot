@@ -57,6 +57,22 @@ class ProtectedWorkerTests(unittest.TestCase):
         self.assertEqual(self.j.pending(),[])
         self.assertEqual(self.j.db.execute('SELECT state FROM live_protection').fetchone()[0],'COMPLETED')
         self.assertLess(self.j.position()[0]*self.api.bid,D('1'))
+    def test_protection_discovered_in_tpsl_order_filter(self):
+        self.enter()
+        original=self.api.request
+        filters=[]
+        def filtered(endpoint,params=None,write=False):
+            if endpoint.endswith('/realtime') and params and 'limit' in params:
+                filters.append(params.get('orderFilter'))
+                if params.get('orderFilter')!='tpslOrder':
+                    return {'list':[]}
+            return original(endpoint,params,write)
+        self.api.request=filtered
+        self.assertFalse(self.worker.reconcile(NOW+1))
+        self.assertEqual(self.j.db.execute('SELECT state FROM live_protection').fetchone()[0],'ACTIVE')
+        self.assertIn('tpslOrder',filters)
+        self.assertEqual(len(self.api.writes),1)
+
     def test_missing_bracket_halts_instead_of_buying_again(self):
         self.enter();self.api.child=None
         with self.assertRaises(Halt):self.worker.reconcile(NOW+1)
