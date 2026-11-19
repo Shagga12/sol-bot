@@ -83,8 +83,9 @@ class ProtectedWorkerTests(unittest.TestCase):
         original=self.api.request
         def filtered(endpoint,params=None,write=False):
             if endpoint.endswith('/realtime') and params and 'limit' in params:
-                if params.get('orderFilter')!='StopOrder':
-                    return {'list':[]}
+                if params.get('orderFilter')=='StopOrder':
+                    return {'list':[self.api.child] if self.api.child and self.api.child['orderStatus']=='Untriggered' else []}
+                return {'list':[]}
             return original(endpoint,params,write)
         self.api.request=filtered
         self.assertFalse(self.worker.reconcile(NOW+1))
