@@ -67,8 +67,10 @@ class Supervisor:
                     'active_protections':active_protections,
                     'pending_protective_exits':pending_protective_exits,
                     'position_status':('ENTRY_PENDING' if pending_entries else
-                        'PROTECTED_POSITION_OPEN' if active_protections and pending_protective_exits else
-                        'PROTECTION_REVIEW_REQUIRED' if active_protections else 'NO_ACTIVE_PROTECTION')}
+                        'PROTECTION_RECORDED_EXCHANGE_UNVERIFIED' if active_protections and pending_protective_exits else
+                        'PROTECTION_REVIEW_REQUIRED' if active_protections else 'NO_ACTIVE_PROTECTION'),
+                    'protection_verification_source':'local_journal_only',
+                    'exchange_protection_verified':False}
         except (sqlite3.Error,ValueError,KeyError,TypeError,IndexError):
             return None
         finally:
