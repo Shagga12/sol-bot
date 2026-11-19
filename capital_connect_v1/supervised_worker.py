@@ -94,9 +94,11 @@ class Supervisor:
             return
         # Once halted, ignore stale START requests without relaunching or
         # repeatedly raising errors. A fresh, validated deployment is required.
-        if self.state == 'HALTED' and command.get('action') == 'START':
+        # A stale START while the release is unvalidated is not a worker failure.
+        # Keep polling for STOP and status rather than permanently halting.
+        if command.get('action') == 'START' and (self.state == 'HALTED' or not self.ready):
             return
-        if (command.get('action') != 'START' or not self.ready or self.state == 'HALTED' or
+        if (command.get('action') != 'START' or self.state == 'HALTED' or
             command.get('worker_id') != self.worker_id or command.get('config_digest') != self.digest):
             raise ValueError('Start is not authorized for this validated worker/configuration')
         sequence = command.get('sequence')
