@@ -21,7 +21,9 @@ def list_open_orders(api,symbol):
                 identity=order.get('orderId')
                 if not identity:raise Halt('Open order lacks exchange identity')
                 if identity not in ids:
-                    ids.add(identity);rows.append(order)
+                    ids.add(identity)
+                    # Persist the category used to locate this exchange order.
+                    rows.append({**order, 'orderFilter':order_filter})
             cursor=page.get('nextPageCursor')
             if not cursor:break
             if cursor in seen or len(rows)>1000:
