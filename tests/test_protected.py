@@ -78,6 +78,25 @@ class ProtectedWorkerTests(unittest.TestCase):
         self.assertIn('tpslOrder',filters)
         self.assertEqual(len(self.api.writes),1)
 
+    def test_protection_filter_is_persisted_from_exchange_response(self):
+        self.enter()
+        original=self.api.request
+        def filtered(endpoint,params=None,write=False):
+            if endpoint.endswith('/realtime') and params and 'limit' in params:
+                if params.get('orderFilter')!='StopOrder':
+                    return {'list':[]}
+            return original(endpoint,params,write)
+        self.api.request=filtered
+        self.assertFalse(self.worker.reconcile(NOW+1))
+        row=self.j.db.execute("SELECT payload FROM live_orders WHERE side='Sell'").fetchone()
+        self.assertEqual(json.loads(row[0])['orderFilter'],'StopOrder')
+        self.api.execute_exit()
+        self.api.calls=[]
+        self.assertTrue(self.worker.reconcile(NOW+2))
+        self.assertTrue(any(params.get('orderFilter')=='StopOrder' and
+            params.get('orderId')=='exit-id' for endpoint,params in self.api.calls
+            if endpoint.endswith('/realtime')))
+
     def test_missing_bracket_halts_instead_of_buying_again(self):
         self.enter();self.api.child=None
         with self.assertRaises(Halt):self.worker.reconcile(NOW+1)
