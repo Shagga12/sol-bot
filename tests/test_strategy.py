@@ -14,7 +14,9 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(evaluate([0]*30, 100, 0, 100, ".001").reason, "invalid_market_price")
 
     def test_daily_loss_blocks(self):
-        self.assertEqual(evaluate(self.rising, 100, -2, 100, "0.001").action, "WAIT")
+        self.assertEqual(evaluate(self.rising, 100, -10, 100, "0.001").reason, "daily_loss_limit")
+        self.assertEqual(evaluate(self.rising, 100, -9.99, 100, "0.001").action, "DEMO_BUY")
+        self.assertEqual(evaluate(self.rising, 100, -10, 1000, "0.001").reason, "daily_loss_limit")
     def test_spread_blocks(self):
         self.assertEqual(evaluate(self.rising, 100, 0, 100, "0.01").action, "WAIT")
     def test_open_position_blocks(self):
