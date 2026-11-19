@@ -11,6 +11,7 @@ class BracketExchange(Fake):
     def __init__(self):
         super().__init__();self.child=None;self.buy_fills=[];self.child_fills=[]
     def request(self,endpoint,params=None,write=False):
+        self.calls.append((endpoint,params))
         if write:
             self.writes.append(params)
             if self.fail_write:raise Halt('uncertain submission')
