@@ -53,7 +53,11 @@ class ProtectedWorkerTests(unittest.TestCase):
         self.assertFalse(self.worker.reconcile(NOW+2))
         self.assertEqual(len(self.api.writes),1)
         self.api.execute_exit()
+        self.api.calls=[]
         self.assertTrue(self.worker.reconcile(NOW+3))
+        self.assertTrue(any(params.get('orderFilter')=='tpslOrder' and
+            params.get('orderId')=='exit-id' for endpoint,params in self.api.calls
+            if endpoint.endswith('/realtime')))
         self.assertEqual(self.j.pending(),[])
         self.assertEqual(self.j.db.execute('SELECT state FROM live_protection').fetchone()[0],'COMPLETED')
         self.assertLess(self.j.position()[0]*self.api.bid,D('1'))
