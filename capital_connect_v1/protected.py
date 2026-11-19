@@ -93,7 +93,8 @@ class ProtectedWorker(Worker):
                 if uncovered>=number(rules['lotSizeFilter']['minOrderAmt'],True):
                     raise Halt('Tradable holdings are not fully covered by protection')
                 link='cc-prot-'+hashlib.sha256(child['orderId'].encode()).hexdigest()[:26]
-                payload={'qty':str(child_qty),'exchangeOrderId':child['orderId']}
+                payload={'qty':str(child_qty),'exchangeOrderId':child['orderId'],
+                         'orderFilter':child.get('orderFilter') or 'tpslOrder'}
                 with self.journal.transaction():
                     self.journal.db.execute("INSERT INTO live_orders(link,created,side,payload) VALUES(?,?,'Sell',?)",
                                             (link,now,json.dumps(payload)))
