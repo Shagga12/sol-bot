@@ -18,7 +18,9 @@ class SupervisorTests(unittest.TestCase):
     def tearDown(self):self.tmp.cleanup()
     def command(self,seq=1):return {'action':'START','sequence':seq,'worker_id':self.s.worker_id,'config_digest':self.s.digest}
     def test_missing_release_cannot_spawn(self):
-        with self.assertRaises(ValueError):self.s.apply(self.command())
+        self.s.apply(self.command())
+        self.assertEqual(self.s.state, 'STOPPED')
+        self.assertFalse(self.s.ready)
         self.factory.assert_not_called()
     def test_start_stop_and_replay_do_not_duplicate_process(self):
         self.s.ready=True
