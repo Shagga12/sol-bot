@@ -5,7 +5,7 @@ from decimal import Decimal
 D = Decimal
 MAX_TRADE_USDT = D("10")
 MAX_ALLOCATION_PCT = D("0.10")
-MAX_DAILY_LOSS_PCT = D("0.02")
+MAX_DAILY_LOSS_USDT = D("10")
 MAX_SPREAD_PCT = D("0.003")
 MIN_CANDLES = 30
 
@@ -29,7 +29,7 @@ def evaluate(closes, available_usdt, daily_realized_pnl_usdt, start_equity_usdt,
         return Decision("WAIT", "warming_up_price_history")
     if any(not v.is_finite() for v in (cash, pnl, equity, spread)) or cash < 0 or equity <= 0 or spread < 0:
         return Decision("WAIT", "invalid_account_or_spread_data")
-    if pnl <= -(equity * MAX_DAILY_LOSS_PCT):
+    if pnl <= -MAX_DAILY_LOSS_USDT:
         return Decision("WAIT", "daily_loss_limit")
     if spread > MAX_SPREAD_PCT:
         return Decision("WAIT", "spread_too_wide")
