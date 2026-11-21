@@ -7,11 +7,16 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
+from capital_connect_v1.bybit_authenticated_probe import verify_testnet_credentials
 
 ROOT = Path(__file__).resolve().parent
 HTML = ROOT / "futures_dashboard.html"
 
 class Handler(BaseHTTPRequestHandler):
+    def do_HEAD(self):
+        if urlsplit(self.path).path == "/health":
+            return self.reply("", "application/json")
+        return self.reply("", "text/plain", 200 if urlsplit(self.path).path == "/" else 404)
     def do_GET(self):
         path = urlsplit(self.path).path
         if path == "/health":
@@ -41,4 +46,5 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError): pass
 
 if __name__ == "__main__":
+    print("BYBIT_TESTNET_AUTH_CHECK " + json.dumps(verify_testnet_credentials()), flush=True)
     ThreadingHTTPServer(("0.0.0.0",int(os.environ.get("PORT","10000"))),Handler).serve_forever()
