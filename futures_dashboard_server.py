@@ -7,6 +7,7 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
+from urllib.request import urlopen
 from capital_connect_v1.bybit_authenticated_probe import verify_testnet_credentials
 
 ROOT = Path(__file__).resolve().parent
@@ -25,6 +26,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(json.dumps({"status":"ok","environment":"testnet","orders_enabled":False}), "application/json")
         if path == "/":
             return self.reply(HTML.read_text(encoding="utf-8"), "text/html; charset=utf-8")
+        if path == "/api/market":
+            try:
+                with urlopen("https://api-testnet.bybit.com/v5/market/tickers?category=linear&symbol=SOLUSDT", timeout=6) as response:
+                    payload = json.load(response)
+                ticker = payload.get("result", {}).get("list", [])[0]
+                return self.reply(json.dumps({"source":"BYBIT_TESTNET_PUBLIC","symbol":"SOLUSDT","last_price":ticker["lastPrice"],"mark_price":ticker.get("markPrice"),"price_change_24h":ticker.get("price24hPcnt"),"live":True}), "application/json")
+            except (OSError, ValueError, KeyError, IndexError, TypeError):
+                return self.reply(json.dumps({"source":"BYBIT_TESTNET_PUBLIC","live":False,"error":"Market data unavailable"}), "application/json", 503)
         if path == "/api/status":
             return self.reply(json.dumps({
                 "name":"Capital Connect","market":"SOLUSDT","category":"linear",
