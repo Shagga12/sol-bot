@@ -3,7 +3,7 @@ import base64
 import hmac
 import hashlib
 import re
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 from urllib.error import HTTPError
 import json
@@ -176,6 +176,7 @@ class Handler(BaseHTTPRequestHandler):
         expected='Basic '+base64.b64encode(('ron:'+password).encode()).decode()
         return bool(password) and hmac.compare_digest(self.headers.get('Authorization',''),expected)
     def do_GET(self):
+        self.path = urlsplit(self.path).path
         if self.path=='/health':return self.send(json.dumps({'status':'ok','live_orders':False,'dashboard_version':VERSION}))
         if not self.viewer():
             self.send_response(401);self.send_header('WWW-Authenticate','Basic realm="Capital Connect", charset="UTF-8"');self.send_header('Cache-Control','no-store');self.end_headers();return
