@@ -1,7 +1,7 @@
 import unittest
 from decimal import Decimal
 from capital_connect_v1.sol_futures_paper_bot import SOLFuturesPaperBot
-from capital_connect_v1.bybit_futures_testnet_probe import verify_contract
+from capital_connect_v1.bybit_futures_testnet_probe import verify_contract, check
 
 
 class PaperBotTests(unittest.TestCase):
@@ -46,6 +46,11 @@ class PaperBotTests(unittest.TestCase):
 
 
 class TestnetContractValidationTests(unittest.TestCase):
+    def test_live_public_bybit_testnet_contract(self):
+        result = check()
+        self.assertEqual(result['testnet_contract'], 'VERIFIED')
+        self.assertEqual(result['orders_submitted'], 0)
+
     def test_valid_contract(self):
         data = {"retCode": 0, "result": {"list": [{"symbol": "SOLUSDT", "status": "Trading", "lotSizeFilter": {"qtyStep": "0.1", "minOrderQty": "0.1"}}]}}
         self.assertEqual(verify_contract(data)["orders_submitted"], 0)
