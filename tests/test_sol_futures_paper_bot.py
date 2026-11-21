@@ -13,7 +13,7 @@ class DashboardSafetyTests(unittest.TestCase):
         self.assertIn("CONNECT", page)
         self.assertIn("disabled>Start bot", page)
         self.assertIn("disabled>Stop bot", page)
-        self.assertIn("Bybit Testnet SOL/USDT market", page)
+        self.assertIn("SOLUSDT · Live quote trend", page)
         self.assertIn("live-market-price", page)
         self.assertIn("SIMULATED · NO EXCHANGE ORDERS", page)
 
