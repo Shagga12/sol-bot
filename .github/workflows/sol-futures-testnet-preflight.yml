@@ -1,0 +1,28 @@
+name: SOL Futures read-only Bybit testnet check
+on:
+  push:
+    branches: [capital-connect-sol-futures-safety]
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test Futures validation logic
+        run: python -m unittest discover -s tests -p 'test_futures_market_preflight.py' -v
+      - name: Query live Bybit testnet public market data without orders
+        run: |
+          python - <<'PY'
+          import json
+          from capital_connect_v1.futures_market_preflight import inspect_market
+          result = inspect_market('testnet')
+          assert result['symbol'] == 'SOLUSDT'
+          assert result['category'] == 'linear'
+          assert result['market_trading']
+          assert result['orders_enabled'] is False
+          print(json.dumps(result, sort_keys=True))
+          PY
