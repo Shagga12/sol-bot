@@ -13,7 +13,9 @@ class DashboardSafetyTests(unittest.TestCase):
         self.assertIn("CONNECT", page)
         self.assertIn("disabled>Start bot", page)
         self.assertIn("disabled>Stop bot", page)
-        self.assertIn("Live market chart not connected", page)
+        self.assertIn("Bybit Testnet SOL/USDT market", page)
+        self.assertIn("live-market-price", page)
+        self.assertIn("SIMULATED · NO EXCHANGE ORDERS", page)
 
     def test_restricted_server_does_not_use_directory_listing(self):
         import inspect
