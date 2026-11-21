@@ -12,6 +12,8 @@ from capital_connect_v1.bybit_authenticated_probe import verify_testnet_credenti
 ROOT = Path(__file__).resolve().parent
 HTML = ROOT / "futures_dashboard.html"
 
+AUTH_STATUS = {"authentication":"CHECKING","read_only":{}}
+
 class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         if urlsplit(self.path).path == "/health":
@@ -26,10 +28,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/status":
             return self.reply(json.dumps({
                 "name":"Capital Connect","market":"SOLUSDT","category":"linear",
-                "environment":"testnet","execution":"NOT_CONNECTED",
+                "environment":"testnet","execution":"READ_ONLY_CONNECTED" if AUTH_STATUS.get("authentication") == "VERIFIED" else "NOT_CONNECTED",
+                "read_only_checks":AUTH_STATUS.get("read_only",{}),
                 "orders_enabled":False,"exchange_protection":"NOT_VERIFIED",
                 "dashboard_controls":"LOCKED_PENDING_FUTURES_WORKER",
-                "note":"Public instrument tests passed; authenticated testnet order execution has not been verified."
+                "note":"Authenticated read-only Testnet checks passed; order execution and exchange protection remain unverified." if AUTH_STATUS.get("authentication") == "VERIFIED" else "Testnet authentication is not verified; trading is disabled."
             }), "application/json")
         self.reply('{"error":"not found"}', "application/json", 404)
     def reply(self, body, content_type, status=200):
@@ -46,5 +49,6 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError): pass
 
 if __name__ == "__main__":
-    print("BYBIT_TESTNET_AUTH_CHECK " + json.dumps(verify_testnet_credentials()), flush=True)
+    AUTH_STATUS.update(verify_testnet_credentials())
+    print("BYBIT_TESTNET_AUTH_CHECK " + json.dumps(AUTH_STATUS), flush=True)
     ThreadingHTTPServer(("0.0.0.0",int(os.environ.get("PORT","10000"))),Handler).serve_forever()
