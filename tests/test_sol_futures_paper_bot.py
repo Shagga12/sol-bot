@@ -52,11 +52,16 @@ class TestnetContractValidationTests(unittest.TestCase):
         self.assertEqual(result['orders_submitted'], 0)
 
     def test_valid_contract(self):
-        data = {"retCode": 0, "result": {"list": [{"symbol": "SOLUSDT", "status": "Trading", "lotSizeFilter": {"qtyStep": "0.1", "minOrderQty": "0.1"}}]}}
+        data = {"retCode": 0, "result": {"list": [{"symbol": "SOLUSDT", "status": "Trading", "leverageFilter": {"maxLeverage": "10"}, "lotSizeFilter": {"qtyStep": "0.1", "minOrderQty": "0.1"}}]}}
         self.assertEqual(verify_contract(data)["orders_submitted"], 0)
 
+    def test_reject_insufficient_leverage(self):
+        data = {"retCode": 0, "result": {"list": [{"symbol": "SOLUSDT", "status": "Trading", "leverageFilter": {"maxLeverage": "2"}, "lotSizeFilter": {"qtyStep": "0.1", "minOrderQty": "0.1"}}]}}
+        with self.assertRaises(ValueError):
+            verify_contract(data)
+
     def test_reject_wrong_symbol(self):
-        data = {"retCode": 0, "result": {"list": [{"symbol": "BTCUSDT", "status": "Trading", "lotSizeFilter": {"qtyStep": "0.1", "minOrderQty": "0.1"}}]}}
+        data = {"retCode": 0, "result": {"list": [{"symbol": "BTCUSDT", "status": "Trading", "leverageFilter": {"maxLeverage": "10"}, "lotSizeFilter": {"qtyStep": "0.1", "minOrderQty": "0.1"}}]}}
         with self.assertRaises(ValueError):
             verify_contract(data)
 
