@@ -2,6 +2,24 @@ import unittest
 from decimal import Decimal
 from capital_connect_v1.sol_futures_paper_bot import SOLFuturesPaperBot
 from capital_connect_v1.bybit_futures_testnet_probe import verify_contract, check
+from pathlib import Path
+from futures_dashboard_server import Handler, HTML
+
+
+class DashboardSafetyTests(unittest.TestCase):
+    def test_dashboard_exists_and_is_not_a_directory_listing(self):
+        page = HTML.read_text(encoding="utf-8")
+        self.assertIn("CAPITAL", page)
+        self.assertIn("CONNECT", page)
+        self.assertIn("disabled>Start bot", page)
+        self.assertIn("disabled>Stop bot", page)
+        self.assertIn("Live market chart not connected", page)
+
+    def test_restricted_server_does_not_use_directory_listing(self):
+        import inspect
+        source = inspect.getsource(Handler)
+        self.assertNotIn("SimpleHTTPRequestHandler", source)
+        self.assertIn('self.reply(\'{"error":"not found"}\'', source)
 
 
 class PaperBotTests(unittest.TestCase):
