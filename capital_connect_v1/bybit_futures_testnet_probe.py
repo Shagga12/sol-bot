@@ -3,7 +3,7 @@
 No API credentials, order placement, private endpoints or mainnet fallback.
 """
 import json
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 URL = "https://api-testnet.bybit.com/v5/market/instruments-info?category=linear&symbol=SOLUSDT"
@@ -31,8 +31,25 @@ def verify_contract(payload):
             raise ValueError("Missing quantity rules") from None
         if not n.is_finite() or n <= 0:
             raise ValueError("Invalid quantity rules")
+    # Size the proposed $10 margin / 3x position against exchange rules.
+    # No price or quantity is sent to the exchange.
+    from .futures_plan import proposed_plan
+    plan = proposed_plan()
+    tick = Decimal(str(lot["qtyStep"]))
+    minimum = Decimal(str(lot["minOrderQty"]))
+    min_notional = Decimal(str(lot.get("minNotionalValue", "0")))
+    price_info = item.get("priceFilter", {})
+    max_leverage = Decimal(str(item.get("leverageFilter", {}).get("maxLeverage", "0")))
+    if max_leverage < plan.leverage:
+        raise ValueError("3x leverage unavailable on testnet")
+    # Instrument info does not supply a current tradable price: mark sizing
+    # unverified rather than assume a price or declare order readiness.
     return {"symbol": "SOLUSDT", "testnet_contract": "VERIFIED",
-            "qtyStep": lot["qtyStep"], "minOrderQty": lot["minOrderQty"],
+            "qtyStep": str(tick), "minOrderQty": str(minimum),
+            "minNotionalValue": str(min_notional),
+            "maximum_notional_usdt": str(plan.maximum_notional_usdt),
+            "leverage_available": True, "order_sizing": "NOT_VERIFIED_NO_PRICE",
+            "exchange_protective_orders": "NOT_VERIFIED",
             "orders_submitted": 0}
 
 
