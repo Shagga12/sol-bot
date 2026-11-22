@@ -12,6 +12,7 @@ from capital_connect_v1.bybit_authenticated_probe import verify_testnet_credenti
 
 ROOT = Path(__file__).resolve().parent
 HTML = ROOT / "futures_dashboard.html"
+BSB_HTML = ROOT / "bsb_futures_paper.html"
 
 AUTH_STATUS = {"authentication":"CHECKING","read_only":{}}
 
@@ -26,6 +27,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(json.dumps({"status":"ok","environment":"testnet","orders_enabled":False}), "application/json")
         if path == "/":
             return self.reply(HTML.read_text(encoding="utf-8"), "text/html; charset=utf-8")
+        if path == "/bsb":
+            return self.reply(BSB_HTML.read_text(encoding="utf-8"), "text/html; charset=utf-8")
         if path == "/api/market":
             try:
                 with urlopen("https://api-testnet.bybit.com/v5/market/tickers?category=linear&symbol=SOLUSDT", timeout=6) as response:
