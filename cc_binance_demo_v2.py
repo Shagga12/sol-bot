@@ -66,6 +66,17 @@ class Handler(BaseHTTPRequestHandler):
                 else: raise ValueError()
             self.reply('{"ok":true}')
         except Exception: self.reply('Invalid request','text/plain',400)
+def verify_feeds():
+    for symbol in ('BSBUSDT','SOLUSDT'):
+        try:
+            with urllib.request.urlopen('https://demo-fapi.binance.com/fapi/v1/ticker/price?symbol='+symbol,timeout=10) as r:
+                data=json.load(r)
+            price=float(data['price'])
+            if data.get('symbol')!=symbol or not 0<price<float('inf'): raise ValueError('invalid response')
+            print('DEMO FEED VERIFIED',symbol,price,flush=True)
+        except Exception as e:
+            print('DEMO FEED FAILED',symbol,str(e),flush=True)
 if __name__=='__main__':
+    threading.Thread(target=verify_feeds,daemon=True).start()
     threading.Thread(target=worker,daemon=True).start()
     ThreadingHTTPServer(('0.0.0.0',int(os.environ.get('PORT','10000'))),Handler).serve_forever()
