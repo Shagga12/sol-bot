@@ -1,4 +1,8 @@
 import os, json, threading, time, urllib.request
+from contextlib import closing
+from copy import deepcopy
+from pathlib import Path
+import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import deque
 from hmac import compare_digest
@@ -7,6 +11,48 @@ import base64
 
 LOCK=threading.RLock()
 S=dict(running=False,symbol='SOLUSDT',leverage=3,price=None,position=None,balance=1000.,trades=[],error='',history=[],pnl=0.)
+
+
+class StateStore:
+    def __init__(self, path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("CREATE TABLE IF NOT EXISTS paper_state (id INTEGER PRIMARY KEY CHECK (id = 1), snapshot TEXT NOT NULL)")
+
+    def load(self):
+        with closing(sqlite3.connect(self.path)) as db:
+            row = db.execute("SELECT snapshot FROM paper_state WHERE id = 1").fetchone()
+        return json.loads(row[0]) if row else {}
+
+    def save(self, state):
+        snapshot = json.dumps(state, allow_nan=False)
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("INSERT INTO paper_state VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET snapshot = excluded.snapshot",
+                       (snapshot,))
+
+
+STORE = None
+
+
+def update_state(change):
+    """Update the paper ledger while holding LOCK and roll back on a failed save."""
+    before = deepcopy(S) if STORE is not None else None
+    change()
+    if STORE is not None:
+        try:
+            STORE.save(S)
+        except (OSError, sqlite3.Error, ValueError):
+            S.clear()
+            S.update(before)
+            raise
+
+
+def apply_quote(price):
+    tick(price)
+    S['error'] = ''
+
+
 def tick(price):
     s=S
     s['price']=price
@@ -29,7 +75,11 @@ def worker():
             with urllib.request.urlopen('https://demo-fapi.binance.com/fapi/v1/ticker/price?symbol='+symbol,timeout=10) as r: price=float(json.load(r)['price'])
             if not 0<price<float('inf'): raise ValueError('invalid price')
             with LOCK:
-                if S['symbol']==symbol: tick(price); S['error']=''
+                if S['symbol'] == symbol:
+                    update_state(lambda: apply_quote(price))
+        except sqlite3.Error:
+            with LOCK:
+                S['error'] = 'Paper state could not be saved'
         except Exception as e:
             with LOCK: S['error']='Demo market feed unavailable: '+type(e).__name__
         time.sleep(15)
@@ -60,16 +110,20 @@ class Handler(BaseHTTPRequestHandler):
             if not 0<n<4096: raise ValueError()
             a=json.loads(self.rfile.read(n))
             with LOCK:
-                if a['action']=='stop': S['running']=False
+                if a['action']=='stop':
+                    update_state(lambda: S.update(running=False))
                 elif a['action']=='start':
                     symbol=a['symbol']; lev=int(a['leverage'])
                     if symbol not in ('SOLUSDT','BSBUSDT') or not 1<=lev<=20: raise ValueError()
                     if S['position'] and (symbol!=S['symbol'] or lev!=S['leverage']): return self.reply('Wait for open position to close','text/plain',409)
-                    if symbol!=S['symbol']: S['history']=[];S['price']=None
-                    S.update(symbol=symbol,leverage=lev,running=True)
+                    settings = dict(symbol=symbol, leverage=lev, running=True)
+                    if symbol != S['symbol']:
+                        settings.update(history=[], price=None)
+                    update_state(lambda: S.update(settings))
                 else: raise ValueError()
             self.reply('{"ok":true}')
-        except Exception: self.reply('Invalid request','text/plain',400)
+        except sqlite3.Error: self.reply('Paper state could not be saved','text/plain',503)
+        except (ValueError, TypeError, KeyError): self.reply('Invalid request','text/plain',400)
 def verify_feeds():
     for symbol in ('BSBUSDT','SOLUSDT'):
         try:
@@ -81,6 +135,13 @@ def verify_feeds():
         except Exception as e:
             print('DEMO FEED FAILED',symbol,str(e),flush=True)
 if __name__=='__main__':
+    state_path = os.environ.get('CC_PAPER_STATE_PATH')
+    if state_path:
+        STORE = StateStore(state_path)
+        S.update(STORE.load())
+        S['error'] = ''
+    else:
+        print('Paper state is in memory. Set CC_PAPER_STATE_PATH on durable storage to enable restart recovery.', flush=True)
     threading.Thread(target=verify_feeds,daemon=True).start()
     threading.Thread(target=worker,daemon=True).start()
     ThreadingHTTPServer(('0.0.0.0',int(os.environ.get('PORT','10000'))),Handler).serve_forever()
