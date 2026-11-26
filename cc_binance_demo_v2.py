@@ -2,6 +2,7 @@ import os, json, threading, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import deque
 from hmac import compare_digest
+from urllib.parse import urlsplit
 import base64
 
 LOCK=threading.RLock()
@@ -40,13 +41,16 @@ class Handler(BaseHTTPRequestHandler):
         if secret and compare_digest(self.headers.get('Authorization',''),expected): return True
         self.send_response(401);self.send_header('WWW-Authenticate','Basic realm="Capital Connect"');self.end_headers();return False
     def reply(self,data,typ='application/json',status=200):
-        self.send_response(status);self.send_header('Content-Type',typ);self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(data.encode())
+        self.send_response(status);self.send_header('Content-Type',typ);self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(data.encode()) if self.command != 'HEAD' else None
+    def do_HEAD(self):
+        self.do_GET()
     def do_GET(self):
-        if self.path=='/health': return self.reply('{"demo":true}')
+        path=urlsplit(self.path).path
+        if path=='/health': return self.reply('{"demo":true}')
         if not self.auth(): return
-        if self.path=='/state':
+        if path=='/state':
             with LOCK: return self.reply(json.dumps(S))
-        if self.path=='/': return self.reply(PAGE,'text/html')
+        if path=='/': return self.reply(PAGE,'text/html')
         self.reply('Not found','text/plain',404)
     def do_POST(self):
         if not self.auth(): return
