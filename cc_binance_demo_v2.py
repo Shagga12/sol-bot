@@ -7,6 +7,7 @@ import base64
 
 LOCK=threading.RLock()
 S=dict(running=False,symbol='SOLUSDT',leverage=3,price=None,position=None,balance=1000.,trades=[],error='',history=[],pnl=0.)
+ENTRY_INTERVAL_SECONDS=900
 def tick(price):
     s=S
     s['price']=price
@@ -18,10 +19,11 @@ def tick(price):
         s['pnl']=move*p['notional']
         if move<=-.01 or move>=.04 or (p['peak']>=.01 and move<=p['peak']-.005):
             s['balance']+=s['pnl']; s['trades'].append(dict(exit=price,pnl=round(s['pnl'],4),**p)); s['position']=None;s['pnl']=0.
-    elif s['running'] and len(h)>=20 and s['balance']>=10:
+    elif s['running'] and len(h)>=20 and s['balance']>=10 and time.monotonic()>=s.get('next_entry_at',0):
         fast=sum(h[-5:])/5; slow=sum(h[-20:])/20
         if abs(fast/slow-1)>.001:
             s['position']=dict(entry=price,direction=1 if fast>slow else -1,notional=10*s['leverage'],peak=0.)
+            s['next_entry_at']=time.monotonic()+ENTRY_INTERVAL_SECONDS
 def worker():
     while True:
         with LOCK: symbol=S['symbol']
