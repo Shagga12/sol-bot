@@ -1,8 +1,10 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import cc_binance_demo_v2 as m
 class DemoTests(unittest.TestCase):
  def setUp(self):
+  m.pending_close=None
+  self.addCleanup(setattr,m,'pending_close',None)
   m.S.pop('next_entry_at',None)
   m.S.update(running=False,symbol='SOLUSDT',leverage=3,price=None,position=None,balance=1000.,trades=[],error='',history=[],pnl=0.)
  def position(self,d=1):
@@ -37,4 +39,29 @@ class DemoTests(unittest.TestCase):
    clock.return_value=1900
    m.tick(121)
    self.assertIsNotNone(m.S['position'])
+ def test_trade_is_restored_with_realized_balance(self):
+  store=Mock()
+  self.position()
+  with patch.object(m,'ledger',store):
+   m.tick(105)
+  _,trade,pnl=store.record.call_args.args
+  closed_balance=m.S['balance']
+  m.S.update(balance=1000.,trades=[])
+  store.restore.return_value=([trade],pnl)
+  m.restore_ledger(store)
+  self.assertEqual(m.S['trades'],[trade])
+  self.assertEqual(m.S['balance'],closed_balance)
+ def test_failed_close_retries_with_same_trade_id_and_exit_price(self):
+  store=Mock()
+  store.record.side_effect=[OSError,None]
+  self.position()
+  with patch.object(m,'ledger',store):
+   with self.assertRaises(m.PaperStorageError):
+    m.tick(105)
+   self.assertEqual(m.S['trades'],[])
+   self.assertEqual(m.S['balance'],1000.)
+   m.tick(100)
+  self.assertEqual(store.record.call_args_list[0],store.record.call_args_list[1])
+  self.assertEqual(m.S['trades'][0]['exit'],105)
+  self.assertIsNone(m.S['position'])
 if __name__=='__main__':unittest.main()

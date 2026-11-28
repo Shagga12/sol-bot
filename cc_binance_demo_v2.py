@@ -3,11 +3,49 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import deque
 from hmac import compare_digest
 from urllib.parse import urlsplit
+from uuid import uuid4
 import base64
 
+from cc_demo_ledger import PaperLedger
+
 LOCK=threading.RLock()
-S=dict(running=False,symbol='SOLUSDT',leverage=3,price=None,position=None,balance=1000.,trades=[],error='',history=[],pnl=0.)
+STARTING_BALANCE = 1000.
+S=dict(running=False,symbol='SOLUSDT',leverage=3,price=None,position=None,balance=STARTING_BALANCE,trades=[],error='',history=[],pnl=0.)
 ENTRY_INTERVAL_SECONDS=900
+ledger = None
+pending_close = None
+
+
+class PaperStorageError(Exception):
+    pass
+
+
+def restore_ledger(store):
+    trades, realized_pnl = store.restore()
+    S.update(balance=STARTING_BALANCE + realized_pnl, trades=trades)
+    print(f'Paper trade ledger ready; restored {len(trades)} closed trades', flush=True)
+
+
+def close_position(price):
+    global pending_close
+    if pending_close is None:
+        realized_pnl = S['pnl']
+        trade = dict(S['position'], exit=price, pnl=round(realized_pnl, 4), symbol=S['symbol'])
+        pending_close = (uuid4(), trade, realized_pnl)
+
+    trade_id, trade, realized_pnl = pending_close
+    if ledger is not None:
+        try:
+            ledger.record(trade_id, trade, realized_pnl)
+        except Exception:
+            raise PaperStorageError('Could not save closed paper trade') from None
+
+    S['balance'] += realized_pnl
+    S['trades'].append(trade)
+    S.update(position=None, pnl=0.)
+    pending_close = None
+
+
 def tick(price):
     s=S
     s['price']=price
@@ -17,8 +55,8 @@ def tick(price):
         d=p['direction']; move=d*(price/p['entry']-1)
         p['peak']=max(p['peak'],move)
         s['pnl']=move*p['notional']
-        if move<=-.01 or move>=.04 or (p['peak']>=.01 and move<=p['peak']-.005):
-            s['balance']+=s['pnl']; s['trades'].append(dict(exit=price,pnl=round(s['pnl'],4),**p)); s['position']=None;s['pnl']=0.
+        if pending_close is not None or move<=-.01 or move>=.04 or (p['peak']>=.01 and move<=p['peak']-.005):
+            close_position(price)
     elif s['running'] and len(h)>=20 and s['balance']>=10 and time.monotonic()>=s.get('next_entry_at',0):
         fast=sum(h[-5:])/5; slow=sum(h[-20:])/20
         if abs(fast/slow-1)>.001:
@@ -32,6 +70,8 @@ def worker():
             if not 0<price<float('inf'): raise ValueError('invalid price')
             with LOCK:
                 if S['symbol']==symbol: tick(price); S['error']=''
+        except PaperStorageError as e:
+            with LOCK: S['error']=str(e)+'; retrying'
         except Exception as e:
             with LOCK: S['error']='Demo market feed unavailable: '+type(e).__name__
         time.sleep(15)
@@ -167,6 +207,13 @@ def verify_feeds():
         except Exception as e:
             print('DEMO FEED FAILED',symbol,str(e),flush=True)
 if __name__=='__main__':
+    database_url = os.environ.get('CC_DEMO_DATABASE_URL')
+    if database_url:
+        try:
+            ledger = PaperLedger(database_url)
+            restore_ledger(ledger)
+        except Exception as error:
+            raise SystemExit(f'Paper trade ledger startup failed ({type(error).__name__})') from None
     threading.Thread(target=verify_feeds,daemon=True).start()
     threading.Thread(target=worker,daemon=True).start()
     ThreadingHTTPServer(('0.0.0.0',int(os.environ.get('PORT','10000'))),Handler).serve_forever()
