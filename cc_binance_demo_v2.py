@@ -12,6 +12,7 @@ LOCK=threading.RLock()
 STARTING_BALANCE = 1000.
 S=dict(running=False,symbol='SOLUSDT',leverage=3,price=None,position=None,balance=STARTING_BALANCE,trades=[],error='',history=[],pnl=0.)
 ENTRY_INTERVAL_SECONDS=900
+MAX_CLOSE_QUOTE_AGE_SECONDS = 45
 ledger = None
 pending_close = None
 
@@ -49,6 +50,7 @@ def close_position(price):
 def tick(price):
     s=S
     s['price']=price
+    s['last_quote_at'] = time.monotonic()
     h=s['history']; h.append(price); del h[:-120]
     p=s['position']
     if p:
@@ -75,10 +77,12 @@ def worker():
         except Exception as e:
             with LOCK: S['error']='Demo market feed unavailable: '+type(e).__name__
         time.sleep(15)
-PAGE='''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{background:#10151d;color:#e9edf4;font:16px system-ui;margin:24px}section{background:#1b2430;padding:20px;border-radius:12px;margin:12px 0}button,select,input{padding:12px;margin:5px;background:#263443;color:white;border:1px solid #526174;border-radius:6px}button{background:#087d55}button.stop{background:#a52e40}pre{white-space:pre-wrap}canvas{width:100%;height:180px}</style><h1>Capital Connect</h1><p>BINANCE FUTURES • PAPER DEMO • NO REAL ORDERS</p><section><select id="pair"><option>SOLUSDT</option><option>BSBUSDT</option></select><label>Leverage <input id="lev" type="number" min="1" max="20" value="3"></label><button onclick="cmd('start')">Start</button><button class="stop" onclick="cmd('stop')">Stop</button><p>Pair and leverage apply when you press Start.</p><p>1% stop loss · 4% take profit · 0.5% trailing after 1% gain</p></section><section><h2 id="bot-status" role="status">Checking bot status…</h2><h2 id="price"></h2><canvas id="chart" width="600" height="180"></canvas><p id="bal"></p><p id="pnl"></p><p id="err"></p></section><section><h3>Position and trade history</h3><pre id="trades"></pre></section><script>
+PAGE='''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{background:#10151d;color:#e9edf4;font:16px system-ui;margin:24px}section{background:#1b2430;padding:20px;border-radius:12px;margin:12px 0}button,select,input{padding:12px;margin:5px;background:#263443;color:white;border:1px solid #526174;border-radius:6px}button{background:#087d55}button.stop{background:#a52e40}button:disabled{opacity:.55}pre{white-space:pre-wrap}canvas{width:100%;height:180px}</style><h1>Capital Connect</h1><p>BINANCE FUTURES • PAPER DEMO • NO REAL ORDERS</p><section><select id="pair"><option>SOLUSDT</option><option>BSBUSDT</option></select><label>Leverage <input id="lev" type="number" min="1" max="20" value="3"></label><button onclick="cmd('start')">Start</button><button class="stop" onclick="cmd('stop')">Stop</button><p>Pair and leverage apply when you press Start. Stop pauses new entries.</p><p>1% stop loss · 4% take profit · 0.5% trailing after 1% gain</p></section><section><h2 id="bot-status" role="status">Checking bot status…</h2><p id="entry-status"></p><h2 id="price"></h2><canvas id="chart" width="600" height="180"></canvas><p id="bal"></p><p id="pnl"></p><p id="err"></p></section><section><h3>Position and trade history</h3><button id="close-position" class="stop" onclick="cmd('close')" disabled>Close paper position</button><pre id="trades"></pre></section><script>
 const pair = document.getElementById('pair');
 const leverage = document.getElementById('lev');
 const botStatus = document.getElementById('bot-status');
+const entryStatus = document.getElementById('entry-status');
+const closeButton = document.getElementById('close-position');
 const quote = document.getElementById('price');
 const balance = document.getElementById('bal');
 const openPnl = document.getElementById('pnl');
@@ -89,6 +93,7 @@ const controlButtons = [...document.querySelectorAll('button')];
 let refreshVersion = 0;
 let pendingCommand = false;
 let controlError = '';
+let hasPosition = false;
 
 async function cmd(action) {
     if (pendingCommand) return;
@@ -96,7 +101,7 @@ async function cmd(action) {
     refreshVersion++;
     controlError = '';
     controlButtons.forEach(button => button.disabled = true);
-    botStatus.textContent = action === 'start' ? 'Starting…' : 'Stopping…';
+    botStatus.textContent = {start: 'Starting…', stop: 'Stopping…', close: 'Closing paper position…'}[action];
     try {
         const response = await fetch('/control', {
             method: 'POST',
@@ -113,6 +118,7 @@ async function cmd(action) {
     } finally {
         pendingCommand = false;
         controlButtons.forEach(button => button.disabled = false);
+        closeButton.disabled = !hasPosition;
         await refresh();
     }
 }
@@ -126,6 +132,11 @@ async function refresh() {
         const state = await response.json();
         if (version !== refreshVersion) return;
         botStatus.textContent = state.running ? 'RUNNING' : 'STOPPED';
+        hasPosition = Boolean(state.position);
+        closeButton.disabled = !hasPosition;
+        entryStatus.textContent = hasPosition ? 'Paper position open.'
+            : state.running && state.history.length < 20 ? 'Collecting demo prices before checking for an entry.'
+            : state.running ? 'Waiting for an entry signal or the next eligible entry.' : '';
         quote.textContent = state.symbol + ' ' + (state.price ?? 'Waiting for price');
         balance.textContent = 'Demo balance: ' + state.balance.toFixed(2) + ' USDT';
         openPnl.textContent = 'Open P&L: ' + state.pnl.toFixed(4);
@@ -136,6 +147,9 @@ async function refresh() {
     } catch {
         if (version !== refreshVersion) return;
         botStatus.textContent = 'Bot status unavailable';
+        entryStatus.textContent = '';
+        hasPosition = false;
+        closeButton.disabled = true;
         feedError.textContent = [controlError, 'Dashboard connection unavailable.'].filter(Boolean).join(' ');
     }
 }
@@ -191,10 +205,21 @@ class Handler(BaseHTTPRequestHandler):
                     symbol=a['symbol']; lev=int(a['leverage'])
                     if symbol not in ('SOLUSDT','BSBUSDT') or not 1<=lev<=20: raise ValueError()
                     if S['position'] and (symbol!=S['symbol'] or lev!=S['leverage']): return self.reply('Wait for open position to close','text/plain',409)
-                    if symbol!=S['symbol']: S['history']=[];S['price']=None
+                    if symbol!=S['symbol']:
+                        S['history']=[];S['price']=None
+                        S.pop('last_quote_at', None)
                     S.update(symbol=symbol,leverage=lev,running=True)
+                elif a['action'] == 'close':
+                    if not S['position']:
+                        return self.reply('No open paper position', 'text/plain', 409)
+                    quote_age = time.monotonic() - S.get('last_quote_at', float('-inf'))
+                    if pending_close is None and quote_age > MAX_CLOSE_QUOTE_AGE_SECONDS:
+                        return self.reply('Waiting for a fresh demo price', 'text/plain', 409)
+                    close_position(S['price'])
                 else: raise ValueError()
             self.reply('{"ok":true}')
+        except PaperStorageError:
+            self.reply('Could not save closed paper trade. The bot will retry.', 'text/plain', 503)
         except Exception: self.reply('Invalid request','text/plain',400)
 def verify_feeds():
     for symbol in ('BSBUSDT','SOLUSDT'):

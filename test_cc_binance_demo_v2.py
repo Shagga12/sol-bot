@@ -1,4 +1,7 @@
 import unittest
+from base64 import b64encode
+from http.client import HTTPConnection
+from threading import Thread
 from unittest.mock import Mock, patch
 import cc_binance_demo_v2 as m
 class DemoTests(unittest.TestCase):
@@ -6,6 +9,7 @@ class DemoTests(unittest.TestCase):
   m.pending_close=None
   self.addCleanup(setattr,m,'pending_close',None)
   m.S.pop('next_entry_at',None)
+  m.S.pop('last_quote_at',None)
   m.S.update(running=False,symbol='SOLUSDT',leverage=3,price=None,position=None,balance=1000.,trades=[],error='',history=[],pnl=0.)
  def position(self,d=1):
   m.S['position']=dict(entry=100.,direction=d,notional=30.,peak=0.)
@@ -64,4 +68,42 @@ class DemoTests(unittest.TestCase):
   self.assertEqual(store.record.call_args_list[0],store.record.call_args_list[1])
   self.assertEqual(m.S['trades'][0]['exit'],105)
   self.assertIsNone(m.S['position'])
+ def test_dashboard_close_saves_trade_after_stop(self):
+  store=Mock()
+  with m.ThreadingHTTPServer(('127.0.0.1',0),m.Handler) as server:
+   thread=Thread(target=server.serve_forever,daemon=True)
+   thread.start()
+   try:
+    with patch.dict(m.os.environ,{'CC_DEMO_PASSWORD':'test-password'}), patch.object(m,'ledger',store):
+     auth='Basic '+b64encode(b'admin:test-password').decode()
+
+     def command(action, **options):
+      conn=HTTPConnection(*server.server_address,timeout=2)
+      try:
+       conn.request('POST','/control',m.json.dumps(dict(action=action,**options)),
+                    {'Authorization':auth,'Content-Type':'application/json'})
+       response=conn.getresponse()
+       return response.status,response.read()
+      finally:
+       conn.close()
+
+     self.assertEqual(command('start',symbol='SOLUSDT',leverage=3)[0],200)
+     for price in range(100,120):
+      m.tick(price)
+     self.assertIsNotNone(m.S['position'])
+     m.tick(119.5)
+     self.assertEqual(command('stop')[0],200)
+     with patch.object(m.time,'monotonic',return_value=m.S['last_quote_at']+46):
+      self.assertEqual(command('close')[0],409)
+     store.record.assert_not_called()
+     self.assertEqual(command('close')[0],200)
+     self.assertEqual(command('close')[0],409)
+     self.assertFalse(m.S['running'])
+     self.assertIsNone(m.S['position'])
+     self.assertEqual(m.S['trades'][0]['exit'],119.5)
+     self.assertGreater(m.S['balance'],1000.)
+     store.record.assert_called_once()
+   finally:
+    server.shutdown()
+    thread.join()
 if __name__=='__main__':unittest.main()
